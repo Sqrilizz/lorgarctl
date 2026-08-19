@@ -11,6 +11,8 @@
         "Icon": "input-mouse",
         "Id": "org.lorgar.battery",
         "Name": "LORGAR Battery",
-        "Version": "1.0"
-    }
+        "Version": "1.0",
+        "Website": "https://github.com/Sqrilizz/lorgarctl"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
 }
