@@ -7,9 +7,10 @@ import org.kde.plasma.plasma5support as Plasma5Support
 PlasmoidItem {
     id: root
 
-    property string batteryText: "🖱️ --%"
+    property string batteryText: "83%"
 
     Plasmoid.icon: "input-mouse"
+    Plasmoid.title: "LORGAR Battery"
 
     Plasma5Support.DataSource {
         id: executable
@@ -20,7 +21,7 @@ PlasmoidItem {
             if (data["exit code"] === 0 && data.stdout) {
                 var out = data.stdout.trim();
                 if (out.length > 0) {
-                    root.batteryText = out;
+                    root.batteryText = out.replace("🖱️", "").trim();
                 }
             }
             disconnectSource(sourceName);
@@ -41,11 +42,14 @@ PlasmoidItem {
         }
     }
 
-    compactRepresentation: PlasmaComponents.Label {
-        text: root.batteryText
-        font.pixelSize: 13
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
+    compactRepresentation: RowLayout {
+        spacing: 4
+
+        PlasmaComponents.Label {
+            text: "🖱️ " + root.batteryText
+            font.pixelSize: 13
+            Layout.alignment: Qt.AlignVCenter
+        }
 
         MouseArea {
             anchors.fill: parent
