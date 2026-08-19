@@ -302,12 +302,12 @@ fn run_app(cli: Cli) -> Result<()> {
                 println!("  Battery:      {}", "N/A".dimmed());
             }
 
-            println!("\n{}", "Available Controls:".bold());
-            println!("  • Set DPI:     {}", "lorgarctl dpi set <stage 0..7> <dpi>".dimmed());
-            println!("  • Active DPI:  {}", "lorgarctl dpi active <stage 0..7>".dimmed());
-            println!("  • Polling:     {}", "lorgarctl polling set <125|250|500|1000>".dimmed());
-            println!("  • RGB Mode:    {}", "lorgarctl rgb mode <static|breathing|color-cycle|tapping|wave>".dimmed());
-            println!("  • RGB Color:   {}", "lorgarctl rgb color <RRGGBB>".dimmed());
+            println!("\n{}", "Available Controls & Short Commands:".bold());
+            println!("  • Active DPI:  {}", "lorgarctl dpi <0..7>".cyan());
+            println!("  • Set DPI:     {}", "lorgarctl dpi <0..7> <dpi>".dimmed());
+            println!("  • Polling:     {}", "lorgarctl polling <125|250|500|1000>".cyan());
+            println!("  • RGB Mode:    {}", "lorgarctl rgb <static|breathing|color-cycle|tapping|wave>".magenta());
+            println!("  • RGB Color:   {}", "lorgarctl rgb <RRGGBB>".magenta());
 
             Ok(())
         }
