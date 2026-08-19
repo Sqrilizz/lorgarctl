@@ -45,12 +45,12 @@ lorgar-linux/
 
 ## Key Features
 
-- 🔋 **Live Battery & Status Monitoring**: Real-time battery percentage query via Feature Report `0x82` with visual battery bar.
-- 🎯 **DPI Stage Configuration (`0x26`, `0x21`)**: Custom DPI resolutions (100..12000 DPI) for stages 0..7 and active stage switching.
-- ⚡ **USB Polling Rate Control (`0x20`)**: Hardware polling interval selection (125 Hz, 250 Hz, 500 Hz, 1000 Hz).
-- 🌈 **RGB Lighting Modes & Color (`0x22`, `0x23`)**: Full support for lighting effects (`static`, `breathing`, `color-cycle`, `tapping`, `wave`) and custom 24-bit static RGB colors.
-- 🔍 **Dynamic Device Auto-Discovery**: Automatically scans HID interfaces (`Usage Page: 0xff10` / Interface #2) without needing manual `/dev/hidrawX` paths.
-- 🛠️ **Reverse-Engineering & Debug Utilities**: Raw 8-byte payload sending and packet inspection using `--debug`.
+- **Live Battery & Status Monitoring**: Real-time battery percentage query via Feature Report `0x82` with visual battery bar.
+- **DPI Stage Configuration (`0x26`, `0x21`)**: Custom DPI resolutions (100..12000 DPI) for stages 0..7 and active stage switching.
+- **USB Polling Rate Control (`0x20`)**: Hardware polling interval selection (125 Hz, 250 Hz, 500 Hz, 1000 Hz).
+- **RGB Lighting Modes & Color (`0x22`, `0x23`)**: Full support for lighting effects (`static`, `breathing`, `color-cycle`, `tapping`, `wave`) and custom 24-bit static RGB colors.
+- **Dynamic Device Auto-Discovery**: Automatically scans HID interfaces (`Usage Page: 0xff10` / Interface #2) without needing manual `/dev/hidrawX` paths.
+- **Reverse-Engineering & Debug Utilities**: Raw 8-byte payload sending and packet inspection using `--debug`.
 
 ---
 
