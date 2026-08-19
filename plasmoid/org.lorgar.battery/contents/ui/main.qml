@@ -27,7 +27,7 @@ PlasmoidItem {
         }
 
         function updateBattery() {
-            connectSource("lorgarctl battery --short");
+            connectSource("/home/sqrilizz/.cargo/bin/lorgarctl battery --short");
         }
     }
 
