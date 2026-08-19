@@ -29,6 +29,10 @@ enum Commands {
     #[command(alias = "info", alias = "hub")]
     Status,
 
+    /// Run native System Tray icon daemon for KDE Plasma / GNOME / XFCE
+    #[command(alias = "daemon")]
+    Tray,
+
     /// Enumerate and display diagnostic info for connected LORGAR devices
     Devices,
 
@@ -244,6 +248,67 @@ fn send_desktop_notification(title: &str, body: &str, critical: bool) {
     let _ = cmd.status();
 }
 
+struct LorgarTray {
+    battery_percentage: u8,
+    active_stage: u8,
+    polling_rate_str: String,
+    rgb_mode_str: String,
+}
+
+impl ksni::Tray for LorgarTray {
+    fn icon_name(&self) -> String {
+        "input-mouse".to_string()
+    }
+
+    fn title(&self) -> String {
+        format!("LORGAR MSA10W ({}%)", self.battery_percentage)
+    }
+
+    fn tool_tip(&self) -> ksni::ToolTip {
+        ksni::ToolTip {
+            title: format!("LORGAR MSA10W: {}%", self.battery_percentage),
+            description: format!(
+                "Stage: {} | Polling: {} | RGB: {}",
+                self.active_stage, self.polling_rate_str, self.rgb_mode_str
+            ),
+            icon_name: "input-mouse".to_string(),
+            ..Default::default()
+        }
+    }
+
+    fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
+        use ksni::menu::*;
+        vec![
+            StandardItem {
+                label: format!("🔋 Battery: {}%", self.battery_percentage),
+                enabled: false,
+                ..Default::default()
+            }.into(),
+            StandardItem {
+                label: format!("🎯 Active Stage: {}", self.active_stage),
+                enabled: false,
+                ..Default::default()
+            }.into(),
+            StandardItem {
+                label: format!("⚡ Polling Rate: {}", self.polling_rate_str),
+                enabled: false,
+                ..Default::default()
+            }.into(),
+            StandardItem {
+                label: format!("🎨 RGB Mode: {}", self.rgb_mode_str),
+                enabled: false,
+                ..Default::default()
+            }.into(),
+            MenuItem::Separator,
+            StandardItem {
+                label: "Quit".to_string(),
+                activate: Box::new(|_| std::process::exit(0)),
+                ..Default::default()
+            }.into(),
+        ]
+    }
+}
+
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
 
@@ -263,6 +328,56 @@ fn main() -> std::process::ExitCode {
 
 fn run_app(cli: Cli) -> Result<()> {
     match cli.command {
+        Commands::Tray => {
+            println!("{}", "Starting LORGAR MSA10W System Tray Daemon...".bold().green());
+            println!("Icon registered in System Tray. Low battery notifications active.");
+
+            let dev = open_device(cli.device.as_deref(), cli.debug)?;
+            let initial_status = dev.get_status().ok();
+
+            let initial_bat = initial_status.as_ref().map(|s| s.battery_percentage).unwrap_or(0);
+            let initial_stage = initial_status.as_ref().map(|s| s.active_stage).unwrap_or(0);
+            let initial_poll = initial_status.as_ref().and_then(|s| s.polling_rate).map(|r| format!("{} Hz", r.hz())).unwrap_or_else(|| "N/A".into());
+            let initial_rgb = initial_status.as_ref().and_then(|s| s.lighting_mode).map(|m| format!("{:?}", m)).unwrap_or_else(|| "N/A".into());
+
+            let tray = LorgarTray {
+                battery_percentage: initial_bat,
+                active_stage: initial_stage,
+                polling_rate_str: initial_poll,
+                rgb_mode_str: initial_rgb,
+            };
+
+            let service = ksni::TrayService::new(tray);
+            let handle = service.handle();
+            service.spawn();
+
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(120));
+
+                if let Ok(dev) = open_device(cli.device.as_deref(), false) {
+                    if let Ok(st) = dev.get_status() {
+                        let bat = st.battery_percentage;
+                        let stage = st.active_stage;
+                        let poll = st.polling_rate.map(|r| format!("{} Hz", r.hz())).unwrap_or_else(|| "N/A".into());
+                        let rgb = st.lighting_mode.map(|m| format!("{:?}", m)).unwrap_or_else(|| "N/A".into());
+
+                        if bat <= 20 {
+                            let is_critical = bat <= 10;
+                            let title = format!("🔋 LORGAR MSA10W Battery Low ({}%)", bat);
+                            let body = format!("Mouse battery level is at {}%. Please connect charger.", bat);
+                            send_desktop_notification(&title, &body, is_critical);
+                        }
+
+                        handle.update(move |t: &mut LorgarTray| {
+                            t.battery_percentage = bat;
+                            t.active_stage = stage;
+                            t.polling_rate_str = poll;
+                            t.rgb_mode_str = rgb;
+                        });
+                    }
+                }
+            }
+        }
         Commands::Status => {
             let dev = open_device(cli.device.as_deref(), cli.debug)?;
             let info = dev.info();

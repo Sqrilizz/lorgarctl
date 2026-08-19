@@ -1,0 +1,11 @@
+[Unit]
+Description=LORGAR MSA10W System Tray Daemon
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/lorgarctl tray
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target
