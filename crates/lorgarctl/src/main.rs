@@ -33,6 +33,10 @@ enum Commands {
     #[command(alias = "daemon")]
     Tray,
 
+    /// Run UPower system battery daemon (integrates mouse battery into KDE Plasma 'Battery & Power' menu)
+    #[command(alias = "upower-daemon")]
+    Upower,
+
     /// Enumerate and display diagnostic info for connected LORGAR devices
     Devices,
 
@@ -328,6 +332,34 @@ fn main() -> std::process::ExitCode {
 
 fn run_app(cli: Cli) -> Result<()> {
     match cli.command {
+        Commands::Upower => {
+            println!("{}", "Starting LORGAR MSA10W UPower Integration Daemon...".bold().green());
+            println!("Virtual HID Battery registered. Mouse battery level will appear in KDE Plasma 'Battery & Power' menu.");
+
+            unsafe extern "C" {
+                fn lorgar_uhid_open() -> std::ffi::c_int;
+                fn lorgar_uhid_update_battery(fd: std::ffi::c_int, percentage: u8) -> std::ffi::c_int;
+            }
+
+            let fd = unsafe { lorgar_uhid_open() };
+            if fd < 0 {
+                return Err(LorgarError::Transport(
+                    "Failed to open /dev/uhid. Please ensure udev rules are applied or run with sudo.".into(),
+                ));
+            }
+
+            loop {
+                if let Ok(dev) = open_device(cli.device.as_deref(), false) {
+                    if let Ok(battery) = dev.get_battery() {
+                        unsafe {
+                            lorgar_uhid_update_battery(fd, battery.percentage);
+                        }
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_secs(60));
+            }
+        }
+
         Commands::Tray => {
             println!("{}", "Starting LORGAR MSA10W System Tray Daemon...".bold().green());
             println!("Icon registered in System Tray. Low battery notifications active.");

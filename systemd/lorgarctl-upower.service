@@ -1,0 +1,12 @@
+[Unit]
+Description=LORGAR MSA10W UPower Battery Daemon
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/home/sqrilizz/.cargo/bin/lorgarctl upower
+Restart=always
+RestartSec=3s
+
+[Install]
+WantedBy=multi-user.target
