@@ -73,10 +73,13 @@ enum Commands {
         hz: Option<PollingRate>,
     },
 
-    /// Manage RGB lighting settings and modes
+    /// Manage RGB lighting settings and modes (e.g. lorgarctl rgb wave or lorgarctl rgb ff0000)
     Rgb {
         #[command(subcommand)]
-        sub: RgbCommands,
+        sub: Option<RgbCommands>,
+
+        /// Direct mode name (static, breathing, color-cycle, tapping, wave) or hex color (#RRGGBB)
+        target: Option<String>,
     },
 
     /// Developer and reverse-engineering utilities
@@ -502,70 +505,143 @@ fn run_app(cli: Cli) -> Result<()> {
             Ok(())
         }
 
-        Commands::Rgb { sub } => match sub {
-            RgbCommands::Mode { mode } => {
-                let dev = open_device(cli.device.as_deref(), cli.debug)?;
-                let info = dev.info();
+        Commands::Rgb { sub, target } => {
+            if let Some(s) = sub {
+                match s {
+                    RgbCommands::Mode { mode } => {
+                        let dev = open_device(cli.device.as_deref(), cli.debug)?;
+                        let info = dev.info();
 
-                let payload = dev.set_lighting_mode(mode)?;
+                        let payload = dev.set_lighting_mode(mode)?;
 
-                if cli.debug {
-                    let mut report = [0u8; 9];
-                    report[0] = 0x00;
-                    report[1..9].copy_from_slice(&payload);
+                        if cli.debug {
+                            let mut report = [0u8; 9];
+                            report[0] = 0x00;
+                            report[1..9].copy_from_slice(&payload);
 
-                    println!("\n{}", "Feature payload (8 bytes):".bold());
-                    println!("  {}", format_hex_bytes(&payload).yellow());
+                            println!("\n{}", "Feature payload (8 bytes):".bold());
+                            println!("  {}", format_hex_bytes(&payload).yellow());
 
-                    println!("\n{}", "Feature report (9 bytes sent to transport):".bold());
-                    println!("  {}", format_hex_bytes(&report).yellow());
+                            println!("\n{}", "Feature report (9 bytes sent to transport):".bold());
+                            println!("  {}", format_hex_bytes(&report).yellow());
 
-                    println!("\n{}", "Result:".bold());
-                    println!("  {}", "OK".green().bold());
-                } else {
-                    println!(
-                        "{} Set RGB mode to {:?} on {}",
-                        "✓".green().bold(),
-                        mode,
-                        info.path.dimmed()
-                    );
+                            println!("\n{}", "Result:".bold());
+                            println!("  {}", "OK".green().bold());
+                        } else {
+                            println!(
+                                "{} Set RGB mode to {:?} on {}",
+                                "✓".green().bold(),
+                                mode,
+                                info.path.dimmed()
+                            );
+                        }
+
+                        Ok(())
+                    }
+
+                    RgbCommands::Color { hex } => {
+                        let (r, g, b) = lorgar_core::parse_hex_color(&hex)?;
+                        let dev = open_device(cli.device.as_deref(), cli.debug)?;
+                        let info = dev.info();
+
+                        let payload = dev.set_lighting_color(r, g, b)?;
+
+                        if cli.debug {
+                            let mut report = [0u8; 9];
+                            report[0] = 0x00;
+                            report[1..9].copy_from_slice(&payload);
+
+                            println!("\n{}", "Feature payload (8 bytes):".bold());
+                            println!("  {}", format_hex_bytes(&payload).yellow());
+
+                            println!("\n{}", "Feature report (9 bytes sent to transport):".bold());
+                            println!("  {}", format_hex_bytes(&report).yellow());
+
+                            println!("\n{}", "Result:".bold());
+                            println!("  {}", "OK".green().bold());
+                        } else {
+                            println!(
+                                "{} Set RGB color to #{:02x}{:02x}{:02x} (R: {}, G: {}, B: {}) on {}",
+                                "✓".green().bold(),
+                                r, g, b, r, g, b,
+                                info.path.dimmed()
+                            );
+                        }
+
+                        Ok(())
+                    }
                 }
+            } else if let Some(arg) = target {
+                if let Ok(mode) = parse_lighting_mode(&arg) {
+                    let dev = open_device(cli.device.as_deref(), cli.debug)?;
+                    let info = dev.info();
 
-                Ok(())
-            }
+                    let payload = dev.set_lighting_mode(mode)?;
 
-            RgbCommands::Color { hex } => {
-                let (r, g, b) = lorgar_core::parse_hex_color(&hex)?;
-                let dev = open_device(cli.device.as_deref(), cli.debug)?;
-                let info = dev.info();
+                    if cli.debug {
+                        let mut report = [0u8; 9];
+                        report[0] = 0x00;
+                        report[1..9].copy_from_slice(&payload);
 
-                let payload = dev.set_lighting_color(r, g, b)?;
+                        println!("\n{}", "Feature payload (8 bytes):".bold());
+                        println!("  {}", format_hex_bytes(&payload).yellow());
 
-                if cli.debug {
-                    let mut report = [0u8; 9];
-                    report[0] = 0x00;
-                    report[1..9].copy_from_slice(&payload);
+                        println!("\n{}", "Feature report (9 bytes sent to transport):".bold());
+                        println!("  {}", format_hex_bytes(&report).yellow());
 
-                    println!("\n{}", "Feature payload (8 bytes):".bold());
-                    println!("  {}", format_hex_bytes(&payload).yellow());
+                        println!("\n{}", "Result:".bold());
+                        println!("  {}", "OK".green().bold());
+                    } else {
+                        println!(
+                            "{} Set RGB mode to {:?} on {}",
+                            "✓".green().bold(),
+                            mode,
+                            info.path.dimmed()
+                        );
+                    }
 
-                    println!("\n{}", "Feature report (9 bytes sent to transport):".bold());
-                    println!("  {}", format_hex_bytes(&report).yellow());
+                    Ok(())
+                } else if let Ok((r, g, b)) = lorgar_core::parse_hex_color(&arg) {
+                    let dev = open_device(cli.device.as_deref(), cli.debug)?;
+                    let info = dev.info();
 
-                    println!("\n{}", "Result:".bold());
-                    println!("  {}", "OK".green().bold());
+                    let payload = dev.set_lighting_color(r, g, b)?;
+
+                    if cli.debug {
+                        let mut report = [0u8; 9];
+                        report[0] = 0x00;
+                        report[1..9].copy_from_slice(&payload);
+
+                        println!("\n{}", "Feature payload (8 bytes):".bold());
+                        println!("  {}", format_hex_bytes(&payload).yellow());
+
+                        println!("\n{}", "Feature report (9 bytes sent to transport):".bold());
+                        println!("  {}", format_hex_bytes(&report).yellow());
+
+                        println!("\n{}", "Result:".bold());
+                        println!("  {}", "OK".green().bold());
+                    } else {
+                        println!(
+                            "{} Set RGB color to #{:02x}{:02x}{:02x} (R: {}, G: {}, B: {}) on {}",
+                            "✓".green().bold(),
+                            r, g, b, r, g, b,
+                            info.path.dimmed()
+                        );
+                    }
+
+                    Ok(())
                 } else {
-                    println!(
-                        "{} Set RGB color to #{:02x}{:02x}{:02x} (R: {}, G: {}, B: {}) on {}",
-                        "✓".green().bold(),
-                        r, g, b, r, g, b,
-                        info.path.dimmed()
-                    );
+                    Err(LorgarError::Transport(format!(
+                        "Invalid RGB argument '{}'. Expected mode (static, breathing, color-cycle, tapping, wave) or hex color (#RRGGBB)",
+                        arg
+                    )))
                 }
-
-                Ok(())
+            } else {
+                Err(LorgarError::Transport(
+                    "Please specify RGB mode or color (e.g. 'lorgarctl rgb static' or 'lorgarctl rgb ff0000')".into(),
+                ))
             }
-        },
+        }
 
         Commands::Debug { sub } => match sub {
             DebugCommands::SendFeature { bytes } => {
