@@ -10,9 +10,6 @@ PlasmoidItem {
     property string batteryText: "🖱️ --%"
 
     Plasmoid.icon: "input-mouse"
-    Plasmoid.title: "LORGAR MSA10W"
-    Plasmoid.toolTipMainText: "LORGAR MSA10W"
-    Plasmoid.toolTipSubText: batteryText
 
     Plasma5Support.DataSource {
         id: executable
@@ -30,7 +27,7 @@ PlasmoidItem {
         }
 
         function updateBattery() {
-            connectSource("/home/sqrilizz/.local/bin/lorgarctl battery --short");
+            connectSource("lorgarctl battery --short");
         }
     }
 
