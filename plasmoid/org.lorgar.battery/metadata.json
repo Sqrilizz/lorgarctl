@@ -1,0 +1,16 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Sqrilizz"
+            }
+        ],
+        "Category": "Utilities",
+        "Description": "LORGAR MSA10W Battery Monitor for KDE Plasma 6",
+        "Icon": "input-mouse",
+        "Id": "org.lorgar.battery",
+        "Name": "LORGAR Battery",
+        "Version": "1.0"
+    }
+}

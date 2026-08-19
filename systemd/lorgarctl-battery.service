@@ -4,4 +4,4 @@ After=desktop-session.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/lorgarctl battery --notify --threshold 20
+ExecStart=%h/.local/bin/lorgarctl battery --notify --threshold 20

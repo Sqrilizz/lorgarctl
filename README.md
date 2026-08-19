@@ -114,11 +114,18 @@ Read the current battery percentage:
 lorgarctl battery
 ```
 
-Output short string for **KDE Plasma Panel "Command Output" Widget**:
+Output short string for **KDE Plasma Panel Widgets**:
 
 ```bash
 lorgarctl battery --short
 # Output: 🖱️ 83%
+```
+
+Install **Native KDE Plasma 6 Applet (`LORGAR Battery`)**:
+
+```bash
+mkdir -p ~/.local/share/plasma/plasmoids/
+cp -r plasmoid/org.lorgar.battery ~/.local/share/plasma/plasmoids/
 ```
 
 Output JSON payload for Waybar, Polybar, or KDE scripts:
