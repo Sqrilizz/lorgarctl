@@ -1,0 +1,553 @@
+use clap::{Parser, Subcommand};
+use colored::*;
+use lorgar_core::{LightingMode, LorgarError, Msa10w, PollingRate, Result};
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "lorgarctl",
+    author,
+    version,
+    about = "Linux CLI controller & diagnostic tool for LORGAR MSA10W gaming mouse",
+    long_about = None
+)]
+struct Cli {
+    /// Enable detailed debug output and packet inspection
+    #[arg(global = true, short = 'd', long)]
+    debug: bool,
+
+    /// Override automatic discovery with specific hidraw path (e.g. /dev/hidraw2)
+    #[arg(global = true, short = 'p', long)]
+    device: Option<String>,
+
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Show mouse dashboard summary (battery, device info, connection)
+    #[command(alias = "info", alias = "hub")]
+    Status,
+
+    /// Enumerate and display diagnostic info for connected LORGAR devices
+    Devices,
+
+    /// Display battery status
+    Battery,
+
+    /// Manage DPI settings
+    Dpi {
+        #[command(subcommand)]
+        sub: DpiCommands,
+    },
+
+    /// Manage USB polling rate (125, 250, 500, 1000 Hz)
+    Polling {
+        #[command(subcommand)]
+        sub: PollingSubcommands,
+    },
+
+    /// Manage RGB lighting settings and modes
+    Rgb {
+        #[command(subcommand)]
+        sub: RgbCommands,
+    },
+
+    /// Developer and reverse-engineering utilities
+    Debug {
+        #[command(subcommand)]
+        sub: DebugCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum PollingSubcommands {
+    /// Set USB polling rate in Hz (125, 250, 500, 1000)
+    Set {
+        /// Frequency in Hz: 125 | 250 | 500 | 1000
+        #[arg(value_parser = parse_polling_rate)]
+        hz: PollingRate,
+    },
+}
+
+fn parse_polling_rate(s: &str) -> std::result::Result<PollingRate, String> {
+    let hz: u16 = s.parse().map_err(|_| {
+        format!(
+            "unsupported polling rate: {} Hz\nsupported values: 125, 250, 500, 1000",
+            s
+        )
+    })?;
+    PollingRate::from_hz(hz).map_err(|_| {
+        format!(
+            "unsupported polling rate: {} Hz\nsupported values: 125, 250, 500, 1000",
+            hz
+        )
+    })
+}
+
+#[derive(Subcommand, Debug)]
+enum RgbCommands {
+    /// Set RGB lighting mode (static, breathing, color-cycle, tapping, wave)
+    Mode {
+        /// Lighting mode name: static | breathing | color-cycle | tapping | wave
+        #[arg(value_parser = parse_lighting_mode)]
+        mode: LightingMode,
+    },
+
+    /// Set static RGB lighting color (format: RRGGBB or #RRGGBB, e.g. ff0000, #a28466)
+    Color {
+        /// Hex color string
+        hex: String,
+    },
+}
+
+fn parse_lighting_mode(s: &str) -> std::result::Result<LightingMode, String> {
+    match s.to_lowercase().replace('_', "-").as_str() {
+        "static" => Ok(LightingMode::Static),
+        "breathing" => Ok(LightingMode::Breathing),
+        "color-cycle" | "colorcycle" => Ok(LightingMode::ColorCycle),
+        "tapping" => Ok(LightingMode::Tapping),
+        "wave" => Ok(LightingMode::Wave),
+        _ => Err(format!(
+            "Invalid lighting mode '{}'. Valid options: static, breathing, color-cycle, tapping, wave",
+            s
+        )),
+    }
+}
+
+#[derive(Subcommand, Debug)]
+enum DpiCommands {
+    /// Set DPI value for a specific stage (stage: 0..7, dpi: 100..12000)
+    Set {
+        /// DPI stage index (0..7)
+        stage: u8,
+        /// DPI value in decimal (e.g. 800, 1400, 1600, 3000)
+        dpi: u16,
+    },
+
+    /// Switch active DPI stage index (stage: 0..7)
+    Active {
+        /// DPI stage index to activate (0..7)
+        stage: u8,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum DebugCommands {
+    /// Send raw 8-byte feature report to configuration interface (DANGER: for development)
+    SendFeature {
+        /// 8 hex bytes (e.g. "26 00 01 78 05 00 00 00" or single string "2600017805000000")
+        bytes: Vec<String>,
+    },
+
+    /// Send 8-byte query feature report and read 64-byte response packet
+    Query {
+        /// 8 hex bytes (defaults to 82 00 00 00 00 00 00 00)
+        bytes: Vec<String>,
+    },
+}
+
+fn render_battery_bar(pct: u8) -> String {
+    let filled = ((pct as usize) + 5) / 10;
+    let empty = 10 - filled.min(10);
+    format!("[{}{}]", "█".repeat(filled.min(10)), "░".repeat(empty))
+}
+
+fn format_hex_bytes(slice: &[u8]) -> String {
+    slice
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn parse_hex_payload(inputs: &[String]) -> Result<[u8; 8]> {
+    let joined = inputs.join(" ").replace("0x", "").replace(',', "");
+    let hex_chars: String = joined.chars().filter(|c| !c.is_whitespace()).collect();
+
+    if hex_chars.len() % 2 != 0 {
+        return Err(LorgarError::HexParseError(
+            "Odd number of hex characters".into(),
+        ));
+    }
+
+    let mut bytes = Vec::new();
+    for i in (0..hex_chars.len()).step_by(2) {
+        let byte_str = &hex_chars[i..i + 2];
+        let byte = u8::from_str_radix(byte_str, 16)
+            .map_err(|e| LorgarError::HexParseError(format!("Invalid hex byte '{}': {}", byte_str, e)))?;
+        bytes.push(byte);
+    }
+
+    if bytes.len() != 8 {
+        return Err(LorgarError::InvalidFeatureLength { len: bytes.len() });
+    }
+
+    let mut arr = [0u8; 8];
+    arr.copy_from_slice(&bytes);
+    Ok(arr)
+}
+
+fn open_device(cli_device: Option<&str>, debug: bool) -> Result<Msa10w> {
+    if let Some(path) = cli_device {
+        if debug {
+            println!("{}", format!("Opening device explicitly at path: {}", path).dimmed());
+        }
+        Msa10w::open_path(path)
+    } else {
+        if debug {
+            println!("{}", "Auto-discovering LORGAR MSA10W configuration interface...".dimmed());
+        }
+        Msa10w::open()
+    }
+}
+
+fn main() -> std::process::ExitCode {
+    let cli = Cli::parse();
+
+    if cli.debug {
+        std::env::set_var("RUST_LOG", "debug");
+        let _ = env_logger::builder().is_test(false).try_init();
+    }
+
+    match run_app(cli) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("{} {}", "Error:".red().bold(), err);
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_app(cli: Cli) -> Result<()> {
+    match cli.command {
+        Commands::Status => {
+            let dev = open_device(cli.device.as_deref(), cli.debug)?;
+            let info = dev.info();
+            let status = dev.get_status().ok();
+
+            println!("{}", "┌──────────────────────────────────────────────────────────┐".cyan());
+            println!("│              {}             │", "LORGAR MSA10W CONTROL DASHBOARD".bold().yellow());
+            println!("{}", "└──────────────────────────────────────────────────────────┘".cyan());
+
+            println!("  Device Model: {}", info.product_string.as_deref().unwrap_or("LORGAR MSA10W").bold());
+            println!("  VID:PID:      {:04x}:{:04x}", info.vendor_id, info.product_id);
+            println!("  Path:         {}", info.path.cyan());
+            println!("  Usage Page:   0x{:04x} (Config Interface)", info.usage_page);
+
+            if let Some(st) = &status {
+                let bar = render_battery_bar(st.battery_percentage);
+                let color_bat = if st.battery_percentage > 50 {
+                    format!("{} {}%", bar, st.battery_percentage).green().bold()
+                } else if st.battery_percentage > 20 {
+                    format!("{} {}%", bar, st.battery_percentage).yellow().bold()
+                } else {
+                    format!("{} {}%", bar, st.battery_percentage).red().bold()
+                };
+                println!("  Battery:      {}", color_bat);
+
+                println!("\n{}", "Current Device Settings:".bold());
+                println!("  • Active Stage: {}", format!("Stage {}", st.active_stage).cyan().bold());
+
+                if let Some(rate) = st.polling_rate {
+                    println!("  • Polling Rate: {}", format!("{} Hz ({} ms)", rate.hz(), rate.interval_ms()).cyan().bold());
+                }
+
+                if let Some(mode) = st.lighting_mode {
+                    println!("  • RGB Mode:     {}", format!("{:?}", mode).magenta().bold());
+                }
+            } else {
+                println!("  Battery:      {}", "N/A".dimmed());
+            }
+
+            println!("\n{}", "Available Controls:".bold());
+            println!("  • Set DPI:     {}", "lorgarctl dpi set <stage 0..7> <dpi>".dimmed());
+            println!("  • Active DPI:  {}", "lorgarctl dpi active <stage 0..7>".dimmed());
+            println!("  • Polling:     {}", "lorgarctl polling set <125|250|500|1000>".dimmed());
+            println!("  • RGB Mode:    {}", "lorgarctl rgb mode <static|breathing|color-cycle|tapping|wave>".dimmed());
+            println!("  • RGB Color:   {}", "lorgarctl rgb color <RRGGBB>".dimmed());
+
+            Ok(())
+        }
+        Commands::Devices => {
+            println!("{}", "Scanning for LORGAR MSA10W devices...".bold());
+            let devices = Msa10w::list_devices()?;
+
+            if devices.is_empty() {
+                println!("{}", "No LORGAR devices found.".yellow());
+                println!("Make sure the mouse or receiver is connected (VID: 0x093a, PID: 0xc600 / 0xc601).");
+                return Ok(());
+            }
+
+            println!("Found {} interface(s):", devices.len());
+            println!("{}", "--------------------------------------------------".dimmed());
+
+            for (idx, dev) in devices.iter().enumerate() {
+                let tag = if dev.is_config_interface {
+                    " [CONFIG INTERFACE]".green().bold().to_string()
+                } else {
+                    "".to_string()
+                };
+
+                println!("Interface #{}{}", idx + 1, tag);
+                println!("  Product:      {}", dev.product_string.as_deref().unwrap_or("LORGAR MSA10W"));
+                println!("  VID:PID:      {:04x}:{:04x}", dev.vendor_id, dev.product_id);
+                println!("  Path:         {}", dev.path.cyan());
+                println!("  Usage Page:   0x{:04x}", dev.usage_page);
+                println!("  Usage:        0x{:04x}", dev.usage);
+                println!("  Interface #:  {}", dev.interface_number);
+                println!("{}", "--------------------------------------------------".dimmed());
+            }
+
+            Ok(())
+        }
+
+        Commands::Battery => {
+            let dev = open_device(cli.device.as_deref(), cli.debug)?;
+            let battery = dev.get_battery()?;
+
+            if cli.debug {
+                println!("\n{}", "Raw 64-byte response packet:".bold());
+                for chunk in battery.raw_response.chunks(16) {
+                    println!("  {}", format_hex_bytes(chunk).yellow());
+                }
+                println!();
+            }
+
+            println!(
+                "🔋 Battery Level: {}",
+                format!("{}%", battery.percentage).cyan().bold()
+            );
+
+            Ok(())
+        }
+
+        Commands::Dpi { sub } => match sub {
+            DpiCommands::Set { stage, dpi } => {
+                let dev = open_device(cli.device.as_deref(), cli.debug)?;
+                let info = dev.info();
+
+                if cli.debug {
+                    println!("\n{}", "Device:".bold());
+                    println!("  VID: {:04x}", info.vendor_id);
+                    println!("  PID: {:04x}", info.product_id);
+                    println!("  Path: {}", info.path);
+                    println!("  Usage Page: {:04x}", info.usage_page);
+                    println!("  Interface #: {}", info.interface_number);
+                }
+
+                let payload = dev.set_dpi(stage, dpi)?;
+
+                if cli.debug {
+                    let mut report = [0u8; 9];
+                    report[0] = 0x00;
+                    report[1..9].copy_from_slice(&payload);
+
+                    println!("\n{}", "Feature payload (8 bytes):".bold());
+                    println!("  {}", format_hex_bytes(&payload).yellow());
+
+                    println!("\n{}", "Feature report (9 bytes sent to transport):".bold());
+                    println!("  {}", format_hex_bytes(&report).yellow());
+
+                    println!("\n{}", "Result:".bold());
+                    println!("  {}", "OK".green().bold());
+                } else {
+                    println!(
+                        "{} Set DPI stage {} to {} DPI on {}",
+                        "✓".green().bold(),
+                        stage.to_string().cyan(),
+                        dpi.to_string().cyan(),
+                        info.path.dimmed()
+                    );
+                }
+
+                Ok(())
+            }
+
+            DpiCommands::Active { stage } => {
+                let dev = open_device(cli.device.as_deref(), cli.debug)?;
+                let info = dev.info();
+
+                let payload = dev.set_active_dpi_stage(stage)?;
+
+                if cli.debug {
+                    let mut report = [0u8; 9];
+                    report[0] = 0x00;
+                    report[1..9].copy_from_slice(&payload);
+
+                    println!("\n{}", "Feature payload (8 bytes):".bold());
+                    println!("  {}", format_hex_bytes(&payload).yellow());
+
+                    println!("\n{}", "Feature report (9 bytes sent to transport):".bold());
+                    println!("  {}", format_hex_bytes(&report).yellow());
+
+                    println!("\n{}", "Result:".bold());
+                    println!("  {}", "OK".green().bold());
+                } else {
+                    println!(
+                        "{} Activated DPI stage {} on {}",
+                        "✓".green().bold(),
+                        stage.to_string().cyan(),
+                        info.path.dimmed()
+                    );
+                }
+
+                Ok(())
+            }
+        },
+
+        Commands::Polling { sub } => match sub {
+            PollingSubcommands::Set { hz } => {
+                let dev = open_device(cli.device.as_deref(), cli.debug)?;
+                let info = dev.info();
+
+                let payload = dev.set_polling_rate(hz)?;
+
+                if cli.debug {
+                    let mut report = [0u8; 9];
+                    report[0] = 0x00;
+                    report[1..9].copy_from_slice(&payload);
+
+                    println!("Polling rate: {} Hz", hz.hz());
+                    println!("Interval: {} ms", hz.interval_ms());
+
+                    println!("\n{}", "Feature payload:".bold());
+                    println!("{}", format_hex_bytes(&payload).yellow());
+
+                    println!("\n{}", "Feature report:".bold());
+                    println!("{}", format_hex_bytes(&report).yellow());
+
+                    println!("\n{}", "Result:".bold());
+                    println!("  {}", "OK".green().bold());
+                } else {
+                    println!(
+                        "{} Set polling rate to {} Hz ({} ms) on {}",
+                        "✓".green().bold(),
+                        hz.hz().to_string().cyan(),
+                        hz.interval_ms().to_string().cyan(),
+                        info.path.dimmed()
+                    );
+                }
+
+                Ok(())
+            }
+        },
+
+        Commands::Rgb { sub } => match sub {
+            RgbCommands::Mode { mode } => {
+                let dev = open_device(cli.device.as_deref(), cli.debug)?;
+                let info = dev.info();
+
+                let payload = dev.set_lighting_mode(mode)?;
+
+                if cli.debug {
+                    let mut report = [0u8; 9];
+                    report[0] = 0x00;
+                    report[1..9].copy_from_slice(&payload);
+
+                    println!("\n{}", "Feature payload (8 bytes):".bold());
+                    println!("  {}", format_hex_bytes(&payload).yellow());
+
+                    println!("\n{}", "Feature report (9 bytes sent to transport):".bold());
+                    println!("  {}", format_hex_bytes(&report).yellow());
+
+                    println!("\n{}", "Result:".bold());
+                    println!("  {}", "OK".green().bold());
+                } else {
+                    println!(
+                        "{} Set RGB mode to {:?} on {}",
+                        "✓".green().bold(),
+                        mode,
+                        info.path.dimmed()
+                    );
+                }
+
+                Ok(())
+            }
+
+            RgbCommands::Color { hex } => {
+                let (r, g, b) = lorgar_core::parse_hex_color(&hex)?;
+                let dev = open_device(cli.device.as_deref(), cli.debug)?;
+                let info = dev.info();
+
+                let payload = dev.set_lighting_color(r, g, b)?;
+
+                if cli.debug {
+                    let mut report = [0u8; 9];
+                    report[0] = 0x00;
+                    report[1..9].copy_from_slice(&payload);
+
+                    println!("\n{}", "Feature payload (8 bytes):".bold());
+                    println!("  {}", format_hex_bytes(&payload).yellow());
+
+                    println!("\n{}", "Feature report (9 bytes sent to transport):".bold());
+                    println!("  {}", format_hex_bytes(&report).yellow());
+
+                    println!("\n{}", "Result:".bold());
+                    println!("  {}", "OK".green().bold());
+                } else {
+                    println!(
+                        "{} Set RGB color to #{:02x}{:02x}{:02x} (R: {}, G: {}, B: {}) on {}",
+                        "✓".green().bold(),
+                        r, g, b, r, g, b,
+                        info.path.dimmed()
+                    );
+                }
+
+                Ok(())
+            }
+        },
+
+        Commands::Debug { sub } => match sub {
+            DebugCommands::SendFeature { bytes } => {
+                let payload = parse_hex_payload(&bytes)?;
+                let dev = open_device(cli.device.as_deref(), cli.debug)?;
+                let info = dev.info();
+
+                println!(
+                    "{} Sending raw feature payload to {}",
+                    "⚠️  WARNING:".yellow().bold(),
+                    info.path.cyan()
+                );
+
+                let mut report = [0u8; 9];
+                report[0] = 0x00;
+                report[1..9].copy_from_slice(&payload);
+
+                println!("Payload: {}", format_hex_bytes(&payload).yellow());
+                println!("Report:  {}", format_hex_bytes(&report).yellow());
+
+                dev.send_raw_feature(&payload)?;
+                println!("Result:  {}", "OK".green().bold());
+
+                Ok(())
+            }
+
+            DebugCommands::Query { bytes } => {
+                let payload = if bytes.is_empty() {
+                    [0x82, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+                } else {
+                    parse_hex_payload(&bytes)?
+                };
+
+                let dev = open_device(cli.device.as_deref(), cli.debug)?;
+                let info = dev.info();
+
+                println!(
+                    "Sending feature query to {} ({})",
+                    info.path.cyan(),
+                    format_hex_bytes(&payload).yellow()
+                );
+
+                let response = dev.query_feature(&payload, 1000)?;
+
+                println!("Received {} byte(s) response:", response.len());
+                for chunk in response.chunks(16) {
+                    println!("  {}", format_hex_bytes(chunk).cyan());
+                }
+
+                Ok(())
+            }
+        },
+    }
+}

@@ -1,0 +1,14 @@
+[package]
+name = "lorgarctl"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "CLI tool for configuring LORGAR MSA10W mouse on Linux"
+
+[dependencies]
+lorgar-core = { path = "../lorgar-core" }
+clap = { version = "4.5", features = ["derive"] }
+env_logger = "0.11"
+log = "0.4"
+colored = "3.0"

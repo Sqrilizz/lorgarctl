@@ -1,0 +1,12 @@
+[package]
+name = "lorgar-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Core library and protocol implementation for LORGAR MSA10W mouse on Linux"
+
+[dependencies]
+hidapi = "2.6"
+thiserror = "2.0"
+log = "0.4"
