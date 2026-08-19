@@ -10,8 +10,9 @@ PlasmoidItem {
     property string batteryText: "🖱️ --%"
 
     Plasmoid.icon: "input-mouse"
-    Plasmoid.toolTipTitle: "LORGAR MSA10W"
-    Plasmoid.toolTipSubTitle: batteryText
+    Plasmoid.title: "LORGAR MSA10W"
+    Plasmoid.toolTipMainText: "LORGAR MSA10W"
+    Plasmoid.toolTipSubText: batteryText
 
     Plasma5Support.DataSource {
         id: executable
