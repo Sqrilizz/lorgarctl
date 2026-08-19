@@ -51,16 +51,26 @@ enum Commands {
         threshold: u8,
     },
 
-    /// Manage DPI settings
+    /// Manage DPI settings and active stage (e.g. lorgarctl dpi 1 or lorgarctl dpi 1 1400)
     Dpi {
         #[command(subcommand)]
-        sub: DpiCommands,
+        sub: Option<DpiCommands>,
+
+        /// DPI stage index to activate or configure (0..7)
+        stage: Option<u8>,
+
+        /// DPI value in decimal (e.g. 800, 1400, 1600, 3000)
+        dpi: Option<u16>,
     },
 
-    /// Manage USB polling rate (125, 250, 500, 1000 Hz)
+    /// Manage USB polling rate (e.g. lorgarctl polling 1000 or lorgarctl polling set 1000)
     Polling {
         #[command(subcommand)]
-        sub: PollingSubcommands,
+        sub: Option<PollingSubcommands>,
+
+        /// Frequency in Hz: 125 | 250 | 500 | 1000
+        #[arg(value_parser = parse_polling_rate)]
+        hz: Option<PollingRate>,
     },
 
     /// Manage RGB lighting settings and modes
@@ -382,116 +392,115 @@ fn run_app(cli: Cli) -> Result<()> {
             Ok(())
         }
 
-        Commands::Dpi { sub } => match sub {
-            DpiCommands::Set { stage, dpi } => {
-                let dev = open_device(cli.device.as_deref(), cli.debug)?;
-                let info = dev.info();
-
-                if cli.debug {
-                    println!("\n{}", "Device:".bold());
-                    println!("  VID: {:04x}", info.vendor_id);
-                    println!("  PID: {:04x}", info.product_id);
-                    println!("  Path: {}", info.path);
-                    println!("  Usage Page: {:04x}", info.usage_page);
-                    println!("  Interface #: {}", info.interface_number);
+        Commands::Dpi { sub, stage, dpi } => {
+            let (target_stage, target_dpi) = if let Some(s) = sub {
+                match s {
+                    DpiCommands::Set { stage, dpi } => (Some(stage), Some(dpi)),
+                    DpiCommands::Active { stage } => (Some(stage), None),
                 }
+            } else if let Some(st) = stage {
+                (Some(st), dpi)
+            } else {
+                return Err(LorgarError::Transport(
+                    "Please specify DPI stage index (e.g. 'lorgarctl dpi 1' or 'lorgarctl dpi set 1 1400')".into(),
+                ));
+            };
 
-                let payload = dev.set_dpi(stage, dpi)?;
+            let dev = open_device(cli.device.as_deref(), cli.debug)?;
+            let info = dev.info();
 
+            if let (Some(st), Some(val)) = (target_stage, target_dpi) {
+                let payload = dev.set_dpi(st, val)?;
                 if cli.debug {
                     let mut report = [0u8; 9];
                     report[0] = 0x00;
                     report[1..9].copy_from_slice(&payload);
-
                     println!("\n{}", "Feature payload (8 bytes):".bold());
                     println!("  {}", format_hex_bytes(&payload).yellow());
-
                     println!("\n{}", "Feature report (9 bytes sent to transport):".bold());
                     println!("  {}", format_hex_bytes(&report).yellow());
-
                     println!("\n{}", "Result:".bold());
                     println!("  {}", "OK".green().bold());
                 } else {
                     println!(
                         "{} Set DPI stage {} to {} DPI on {}",
                         "✓".green().bold(),
-                        stage.to_string().cyan(),
-                        dpi.to_string().cyan(),
+                        st.to_string().cyan(),
+                        val.to_string().cyan(),
                         info.path.dimmed()
                     );
                 }
-
-                Ok(())
-            }
-
-            DpiCommands::Active { stage } => {
-                let dev = open_device(cli.device.as_deref(), cli.debug)?;
-                let info = dev.info();
-
-                let payload = dev.set_active_dpi_stage(stage)?;
-
+            } else if let Some(st) = target_stage {
+                let payload = dev.set_active_dpi_stage(st)?;
                 if cli.debug {
                     let mut report = [0u8; 9];
                     report[0] = 0x00;
                     report[1..9].copy_from_slice(&payload);
-
                     println!("\n{}", "Feature payload (8 bytes):".bold());
                     println!("  {}", format_hex_bytes(&payload).yellow());
-
                     println!("\n{}", "Feature report (9 bytes sent to transport):".bold());
                     println!("  {}", format_hex_bytes(&report).yellow());
-
                     println!("\n{}", "Result:".bold());
                     println!("  {}", "OK".green().bold());
                 } else {
                     println!(
                         "{} Activated DPI stage {} on {}",
                         "✓".green().bold(),
-                        stage.to_string().cyan(),
+                        st.to_string().cyan(),
                         info.path.dimmed()
                     );
                 }
-
-                Ok(())
             }
-        },
 
-        Commands::Polling { sub } => match sub {
-            PollingSubcommands::Set { hz } => {
-                let dev = open_device(cli.device.as_deref(), cli.debug)?;
-                let info = dev.info();
+            Ok(())
+        }
 
-                let payload = dev.set_polling_rate(hz)?;
-
-                if cli.debug {
-                    let mut report = [0u8; 9];
-                    report[0] = 0x00;
-                    report[1..9].copy_from_slice(&payload);
-
-                    println!("Polling rate: {} Hz", hz.hz());
-                    println!("Interval: {} ms", hz.interval_ms());
-
-                    println!("\n{}", "Feature payload:".bold());
-                    println!("{}", format_hex_bytes(&payload).yellow());
-
-                    println!("\n{}", "Feature report:".bold());
-                    println!("{}", format_hex_bytes(&report).yellow());
-
-                    println!("\n{}", "Result:".bold());
-                    println!("  {}", "OK".green().bold());
-                } else {
-                    println!(
-                        "{} Set polling rate to {} Hz ({} ms) on {}",
-                        "✓".green().bold(),
-                        hz.hz().to_string().cyan(),
-                        hz.interval_ms().to_string().cyan(),
-                        info.path.dimmed()
-                    );
+        Commands::Polling { sub, hz } => {
+            let target_hz = if let Some(s) = sub {
+                match s {
+                    PollingSubcommands::Set { hz } => hz,
                 }
+            } else if let Some(rate) = hz {
+                rate
+            } else {
+                return Err(LorgarError::Transport(
+                    "Please specify polling rate in Hz (e.g. 'lorgarctl polling 1000' or 'lorgarctl polling set 1000')".into(),
+                ));
+            };
 
-                Ok(())
+            let dev = open_device(cli.device.as_deref(), cli.debug)?;
+            let info = dev.info();
+
+            let payload = dev.set_polling_rate(target_hz)?;
+
+            if cli.debug {
+                let mut report = [0u8; 9];
+                report[0] = 0x00;
+                report[1..9].copy_from_slice(&payload);
+
+                println!("Polling rate: {} Hz", target_hz.hz());
+                println!("Interval: {} ms", target_hz.interval_ms());
+
+                println!("\n{}", "Feature payload:".bold());
+                println!("{}", format_hex_bytes(&payload).yellow());
+
+                println!("\n{}", "Feature report:".bold());
+                println!("{}", format_hex_bytes(&report).yellow());
+
+                println!("\n{}", "Result:".bold());
+                println!("  {}", "OK".green().bold());
+            } else {
+                println!(
+                    "{} Set polling rate to {} Hz ({} ms) on {}",
+                    "✓".green().bold(),
+                    target_hz.hz().to_string().cyan(),
+                    target_hz.interval_ms().to_string().cyan(),
+                    info.path.dimmed()
+                );
             }
-        },
+
+            Ok(())
+        }
 
         Commands::Rgb { sub } => match sub {
             RgbCommands::Mode { mode } => {
