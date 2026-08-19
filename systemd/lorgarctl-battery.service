@@ -1,0 +1,7 @@
+[Unit]
+Description=LORGAR MSA10W Low Battery Notification Service
+After=desktop-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/lorgarctl battery --notify --threshold 20

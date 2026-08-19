@@ -33,7 +33,23 @@ enum Commands {
     Devices,
 
     /// Display battery status
-    Battery,
+    Battery {
+        /// Print short string for KDE panel / status bars (e.g. "83%" or "🖱️ 83%")
+        #[arg(short, long)]
+        short: bool,
+
+        /// Output JSON payload for KDE widgets, Waybar, or Polybar
+        #[arg(short, long)]
+        json: bool,
+
+        /// Send desktop notification if battery level is below threshold
+        #[arg(short, long)]
+        notify: bool,
+
+        /// Low battery notification threshold percentage (default: 20)
+        #[arg(short, long, default_value_t = 20)]
+        threshold: u8,
+    },
 
     /// Manage DPI settings
     Dpi {
@@ -202,6 +218,19 @@ fn open_device(cli_device: Option<&str>, debug: bool) -> Result<Msa10w> {
     }
 }
 
+fn send_desktop_notification(title: &str, body: &str, critical: bool) {
+    let mut cmd = std::process::Command::new("notify-send");
+    cmd.arg("-a").arg("lorgarctl");
+    cmd.arg("-i").arg("input-mouse");
+    if critical {
+        cmd.arg("-u").arg("critical");
+    } else {
+        cmd.arg("-u").arg("normal");
+    }
+    cmd.arg(title).arg(body);
+    let _ = cmd.status();
+}
+
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
 
@@ -302,22 +331,53 @@ fn run_app(cli: Cli) -> Result<()> {
             Ok(())
         }
 
-        Commands::Battery => {
+        Commands::Battery {
+            short,
+            json,
+            notify,
+            threshold,
+        } => {
             let dev = open_device(cli.device.as_deref(), cli.debug)?;
             let battery = dev.get_battery()?;
 
-            if cli.debug {
-                println!("\n{}", "Raw 64-byte response packet:".bold());
-                for chunk in battery.raw_response.chunks(16) {
-                    println!("  {}", format_hex_bytes(chunk).yellow());
-                }
-                println!();
+            if notify && battery.percentage <= threshold {
+                let is_critical = battery.percentage <= 10;
+                let title = format!("🔋 LORGAR MSA10W Battery Low ({}%)", battery.percentage);
+                let body = format!(
+                    "Mouse battery level is at {}%. Please connect charger.",
+                    battery.percentage
+                );
+                send_desktop_notification(&title, &body, is_critical);
             }
 
-            println!(
-                "🔋 Battery Level: {}",
-                format!("{}%", battery.percentage).cyan().bold()
-            );
+            if json {
+                let class_str = if battery.percentage > 50 {
+                    "good"
+                } else if battery.percentage > 20 {
+                    "warning"
+                } else {
+                    "critical"
+                };
+                println!(
+                    "{{\"percentage\":{},\"icon\":\"🖱️\",\"text\":\"{}%\",\"tooltip\":\"LORGAR MSA10W: {}%\",\"class\":\"{}\"}}",
+                    battery.percentage, battery.percentage, battery.percentage, class_str
+                );
+            } else if short {
+                println!("🖱️ {}%", battery.percentage);
+            } else {
+                if cli.debug {
+                    println!("\n{}", "Raw 64-byte response packet:".bold());
+                    for chunk in battery.raw_response.chunks(16) {
+                        println!("  {}", format_hex_bytes(chunk).yellow());
+                    }
+                    println!();
+                }
+
+                println!(
+                    "🔋 Battery Level: {}",
+                    format!("{}%", battery.percentage).cyan().bold()
+                );
+            }
 
             Ok(())
         }

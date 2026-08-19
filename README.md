@@ -106,12 +106,32 @@ lorgarctl info
 lorgarctl hub
 ```
 
-### 2. Battery Query
+### 2. Battery Query & KDE Plasma Panel Integration
 
 Read the current battery percentage:
 
 ```bash
 lorgarctl battery
+```
+
+Output short string for **KDE Plasma Panel "Command Output" Widget**:
+
+```bash
+lorgarctl battery --short
+# Output: 🖱️ 83%
+```
+
+Output JSON payload for Waybar, Polybar, or KDE scripts:
+
+```bash
+lorgarctl battery --json
+# Output: {"percentage":83,"icon":"🖱️","text":"83%","tooltip":"LORGAR MSA10W: 83%","class":"good"}
+```
+
+Send desktop notification if battery is low (<= 20%):
+
+```bash
+lorgarctl battery --notify --threshold 20
 ```
 
 ### 3. DPI Stage & Resolution Settings
