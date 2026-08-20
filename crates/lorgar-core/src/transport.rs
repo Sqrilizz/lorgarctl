@@ -15,8 +15,47 @@ impl HidapiTransport {
     }
 }
 
+pub struct DeviceLock {
+    _file: std::fs::File,
+}
+
+impl DeviceLock {
+    pub fn acquire() -> std::io::Result<Self> {
+        let path = std::env::temp_dir().join("lorgarctl_device.lock");
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)?;
+
+        use std::os::unix::io::AsRawFd;
+        unsafe {
+            let fd = file.as_raw_fd();
+            let ret = libc::flock(fd, libc::LOCK_EX);
+            if ret != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+
+        Ok(Self { _file: file })
+    }
+}
+
+impl Drop for DeviceLock {
+    fn drop(&mut self) {
+        use std::os::unix::io::AsRawFd;
+        unsafe {
+            let fd = self._file.as_raw_fd();
+            libc::flock(fd, libc::LOCK_UN);
+        }
+    }
+}
+
 impl HidTransport for HidapiTransport {
     fn send_feature_command(&self, payload: &[u8; 8]) -> Result<()> {
+        let _lock = DeviceLock::acquire();
+
         let mut report = [0u8; 9];
         report[0] = 0x00;
         report[1..9].copy_from_slice(payload);
@@ -34,6 +73,8 @@ impl HidTransport for HidapiTransport {
     }
 
     fn query_feature_command(&self, payload: &[u8; 8], timeout_ms: i32) -> Result<Vec<u8>> {
+        let _lock = DeviceLock::acquire();
+
         let mut report = [0u8; 9];
         report[0] = 0x00;
         report[1..9].copy_from_slice(payload);

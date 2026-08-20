@@ -10,3 +10,4 @@ description = "Core library and protocol implementation for LORGAR MSA10W mouse 
 hidapi = "2.6"
 thiserror = "2.0"
 log = "0.4"
+libc = "0.2"
