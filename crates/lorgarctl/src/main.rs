@@ -348,15 +348,30 @@ fn run_app(cli: Cli) -> Result<()> {
                 ));
             }
 
+            let mut smoothed_battery: Option<u8> = None;
+
             loop {
                 if let Ok(dev) = open_device(cli.device.as_deref(), false) {
                     if let Ok(battery) = dev.get_battery() {
+                        let raw_pct = battery.percentage.min(100);
+                        let final_pct = match smoothed_battery {
+                            None => {
+                                smoothed_battery = Some(raw_pct);
+                                raw_pct
+                            }
+                            Some(prev) => {
+                                let smoothed = ((prev as u16 * 2 + raw_pct as u16) / 3) as u8;
+                                smoothed_battery = Some(smoothed);
+                                smoothed
+                            }
+                        };
+
                         unsafe {
-                            lorgar_uhid_update_battery(fd, battery.percentage);
+                            lorgar_uhid_update_battery(fd, final_pct);
                         }
                     }
                 }
-                std::thread::sleep(std::time::Duration::from_secs(60));
+                std::thread::sleep(std::time::Duration::from_secs(30));
             }
         }
 
