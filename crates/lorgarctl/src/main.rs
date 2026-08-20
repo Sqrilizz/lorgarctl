@@ -441,12 +441,13 @@ fn run_app(cli: Cli) -> Result<()> {
 
             if let Some(st) = &status {
                 let bar = render_battery_bar(st.battery_percentage);
+                let charging_suffix = if st.is_charging { " (⚡ Charging)" } else { "" };
                 let color_bat = if st.battery_percentage > 50 {
-                    format!("{} {}%", bar, st.battery_percentage).green().bold()
+                    format!("{} {}%{}", bar, st.battery_percentage, charging_suffix).green().bold()
                 } else if st.battery_percentage > 20 {
-                    format!("{} {}%", bar, st.battery_percentage).yellow().bold()
+                    format!("{} {}%{}", bar, st.battery_percentage, charging_suffix).yellow().bold()
                 } else {
-                    format!("{} {}%", bar, st.battery_percentage).red().bold()
+                    format!("{} {}%{}", bar, st.battery_percentage, charging_suffix).red().bold()
                 };
                 println!("  Battery:      {}", color_bat);
 
@@ -538,7 +539,11 @@ fn run_app(cli: Cli) -> Result<()> {
                     battery.percentage, battery.percentage, battery.percentage, class_str
                 );
             } else if short {
-                println!("🖱️ {}%", battery.percentage);
+                if battery.is_charging {
+                    println!("⚡ {}%", battery.percentage);
+                } else {
+                    println!("🖱️ {}%", battery.percentage);
+                }
             } else {
                 if cli.debug {
                     println!("\n{}", "Raw 64-byte response packet:".bold());
@@ -548,9 +553,11 @@ fn run_app(cli: Cli) -> Result<()> {
                     println!();
                 }
 
+                let charging_str = if battery.is_charging { " (⚡ Charging)" } else { "" };
                 println!(
-                    "🔋 Battery Level: {}",
-                    format!("{}%", battery.percentage).cyan().bold()
+                    "🔋 Battery Level: {}{}",
+                    format!("{}%", battery.percentage).cyan().bold(),
+                    charging_str.green().bold()
                 );
             }
 

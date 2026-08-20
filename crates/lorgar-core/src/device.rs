@@ -131,12 +131,14 @@ impl Msa10w {
 #[derive(Debug, Clone)]
 pub struct BatteryInfo {
     pub percentage: u8,
+    pub is_charging: bool,
     pub raw_response: [u8; 64],
 }
 
 #[derive(Debug, Clone)]
 pub struct DeviceStatus {
     pub battery_percentage: u8,
+    pub is_charging: bool,
     pub active_stage: u8,
     pub polling_rate: Option<PollingRate>,
     pub lighting_mode: Option<LightingMode>,
@@ -199,13 +201,15 @@ impl Msa10w {
             ));
         }
 
-        let percentage = raw[7];
+        let percentage = raw[7].min(100);
+        let is_charging = self.info.product_id == PRODUCT_IDS[0];
         let mut raw_response = [0u8; 64];
         let len = raw.len().min(64);
         raw_response[..len].copy_from_slice(&raw[..len]);
 
         Ok(BatteryInfo {
             percentage,
+            is_charging,
             raw_response,
         })
     }
@@ -220,8 +224,9 @@ impl Msa10w {
 
         let mode_byte = raw[2];
         let active_stage = raw[4];
-        let battery_percentage = raw[7];
+        let battery_percentage = raw[7].min(100);
         let interval_byte = raw[8];
+        let is_charging = self.info.product_id == PRODUCT_IDS[0];
 
         let lighting_mode = match mode_byte {
             0x01 => Some(LightingMode::Static),
@@ -246,6 +251,7 @@ impl Msa10w {
 
         Ok(DeviceStatus {
             battery_percentage,
+            is_charging,
             active_stage,
             polling_rate,
             lighting_mode,
