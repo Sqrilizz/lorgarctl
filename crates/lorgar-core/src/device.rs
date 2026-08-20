@@ -73,17 +73,15 @@ impl Msa10w {
             });
         }
 
-        for dev_info in &config_candidates {
-            let path = dev_info.path().to_str().unwrap_or_default();
-            if let Ok(dev) = Self::open_path(path) {
-                if dev.query_device_state().is_ok() {
-                    return Ok(dev);
-                }
-            }
-        }
+        // If wired USB cable (PID 0xc600) is connected, prioritize it over wireless receiver (0xc601)
+        let target_dev = config_candidates
+            .iter()
+            .find(|d| d.product_id() == PRODUCT_IDS[0])
+            .copied()
+            .unwrap_or(config_candidates[0]);
 
-        let first_path = config_candidates[0].path().to_str().unwrap_or_default();
-        Self::open_path(first_path)
+        let path = target_dev.path().to_str().unwrap_or_default();
+        Self::open_path(path)
     }
 
     pub fn open_path(path: &str) -> Result<Self> {
