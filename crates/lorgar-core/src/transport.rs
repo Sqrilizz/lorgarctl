@@ -40,9 +40,9 @@ impl HidTransport for HidapiTransport {
 
         log::debug!("Sending Feature Query (9 bytes): {:02x?}", report);
 
-        for attempt in 1..=3 {
+        for attempt in 1..=5 {
             if let Err(e) = self.device.send_feature_report(&report) {
-                if attempt == 3 {
+                if attempt == 5 {
                     return Err(LorgarError::Hid(e));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
@@ -53,14 +53,12 @@ impl HidTransport for HidapiTransport {
             match self.device.read_timeout(&mut buf, timeout_ms) {
                 Ok(bytes_read) => {
                     log::debug!("Attempt {}: Read {} byte(s) response from device", attempt, bytes_read);
-                    if bytes_read >= 8 {
+                    if bytes_read >= 8 && (buf[0] != 0 || buf[1] != 0 || buf[7] != 0) {
                         return Ok(buf[..bytes_read].to_vec());
                     }
                 }
                 Err(e) => {
-                    if attempt == 3 {
-                        return Err(LorgarError::Hid(e));
-                    }
+                    log::debug!("Attempt {} read error: {:?}", attempt, e);
                 }
             }
 
@@ -68,7 +66,7 @@ impl HidTransport for HidapiTransport {
         }
 
         Err(LorgarError::Transport(
-            "Short device state query response from hardware after 3 attempts".into(),
+            "Short device state query response from hardware after 5 attempts".into(),
         ))
     }
 }
