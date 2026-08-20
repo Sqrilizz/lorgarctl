@@ -57,27 +57,33 @@ impl Msa10w {
 
     pub fn open() -> Result<Self> {
         let api = HidApi::new()?;
-        let candidates: Vec<&hidapi::DeviceInfo> = api
+        let config_candidates: Vec<&hidapi::DeviceInfo> = api
             .device_list()
-            .filter(|d| d.vendor_id() == VENDOR_ID && PRODUCT_IDS.contains(&d.product_id()))
+            .filter(|d| {
+                d.vendor_id() == VENDOR_ID
+                    && PRODUCT_IDS.contains(&d.product_id())
+                    && (d.usage_page() == CONFIG_USAGE_PAGE || d.interface_number() == 2)
+            })
             .collect();
 
-        if candidates.is_empty() {
+        if config_candidates.is_empty() {
             return Err(LorgarError::DeviceNotFound {
                 vid: VENDOR_ID,
                 pid: PRODUCT_IDS[1],
             });
         }
 
-        let target_dev = candidates
-            .iter()
-            .find(|d| d.usage_page() == CONFIG_USAGE_PAGE)
-            .copied()
-            .or_else(|| candidates.iter().find(|d| d.interface_number() == 2).copied())
-            .unwrap_or(candidates[0]);
+        for dev_info in &config_candidates {
+            let path = dev_info.path().to_str().unwrap_or_default();
+            if let Ok(dev) = Self::open_path(path) {
+                if dev.query_device_state().is_ok() {
+                    return Ok(dev);
+                }
+            }
+        }
 
-        let path = target_dev.path().to_str().unwrap_or_default();
-        Self::open_path(path)
+        let first_path = config_candidates[0].path().to_str().unwrap_or_default();
+        Self::open_path(first_path)
     }
 
     pub fn open_path(path: &str) -> Result<Self> {
