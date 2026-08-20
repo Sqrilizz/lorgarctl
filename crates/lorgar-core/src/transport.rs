@@ -22,10 +22,12 @@ pub struct DeviceLock {
 impl DeviceLock {
     pub fn acquire() -> std::io::Result<Self> {
         let path = std::env::temp_dir().join("lorgarctl_device.lock");
+        use std::os::unix::fs::OpenOptionsExt;
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
+            .mode(0o666)
             .truncate(false)
             .open(&path)?;
 
@@ -54,7 +56,8 @@ impl Drop for DeviceLock {
 
 impl HidTransport for HidapiTransport {
     fn send_feature_command(&self, payload: &[u8; 8]) -> Result<()> {
-        let _lock = DeviceLock::acquire();
+        let _lock = DeviceLock::acquire().expect("Failed to acquire IPC device lock");
+        std::thread::sleep(std::time::Duration::from_millis(20));
 
         let mut report = [0u8; 9];
         report[0] = 0x00;
@@ -73,7 +76,8 @@ impl HidTransport for HidapiTransport {
     }
 
     fn query_feature_command(&self, payload: &[u8; 8], timeout_ms: i32) -> Result<Vec<u8>> {
-        let _lock = DeviceLock::acquire();
+        let _lock = DeviceLock::acquire().expect("Failed to acquire IPC device lock");
+        std::thread::sleep(std::time::Duration::from_millis(20));
 
         let mut report = [0u8; 9];
         report[0] = 0x00;
