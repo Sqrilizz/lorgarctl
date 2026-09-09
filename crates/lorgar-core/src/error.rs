@@ -2,6 +2,28 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum LorgarError {
+    #[error("{message}")]
+    Remote { code: u8, message: String },
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Configuration or message error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("Invalid packet: {0}")]
+    InvalidPacket(String),
+
+    #[error("Permission denied for '{path}'; install udev/99-lorgar-msa10w.rules and reconnect the device")]
+    PermissionDenied { path: String },
+
+    #[error("Device is in use; use --daemon or stop the other direct HID client")]
+    DeviceBusy,
+
+    #[error("Device response timed out")]
+    Timeout,
+
+    #[error("Configuration error: {0}")]
+    Config(String),
     #[error("No LORGAR MSA10W device found (VID: 0x{vid:04x}, PID: 0x{pid:04x})")]
     DeviceNotFound { vid: u16, pid: u16 },
 
@@ -34,6 +56,16 @@ pub enum LorgarError {
 
     #[error("Transport error: {0}")]
     Transport(String),
+
+    #[error(
+        "profile '{name}' stopped at command {index}; earlier writes may have applied: {source}"
+    )]
+    ProfileApply {
+        name: String,
+        index: usize,
+        #[source]
+        source: Box<LorgarError>,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, LorgarError>;

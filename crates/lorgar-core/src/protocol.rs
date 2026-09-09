@@ -16,7 +16,7 @@ pub mod cmd {
     pub const QUERY_STATE: u8 = 0x82;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PollingRate {
     Hz125,
     Hz250,
@@ -55,10 +55,20 @@ impl PollingRate {
 }
 
 pub fn build_set_polling_rate_payload(rate: PollingRate) -> [u8; 8] {
-    [cmd::SET_POLLING_RATE, 0x00, 0x00, rate.interval_ms(), 0x00, 0x00, 0x00, 0x00]
+    [
+        cmd::SET_POLLING_RATE,
+        0x00,
+        0x00,
+        rate.interval_ms(),
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+    ]
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum LightingMode {
     Static,
     Breathing,
@@ -90,18 +100,21 @@ pub fn build_set_lighting_color_payload(r: u8, g: u8, b: u8) -> [u8; 8] {
 
 pub fn parse_hex_color(hex_str: &str) -> Result<(u8, u8, u8)> {
     let s = hex_str.trim().trim_start_matches('#');
-    if s.len() != 6 {
+    if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(LorgarError::InvalidColorFormat {
             color: hex_str.to_string(),
         });
     }
 
-    let r = u8::from_str_radix(&s[0..2], 16)
-        .map_err(|_| LorgarError::InvalidColorFormat { color: hex_str.to_string() })?;
-    let g = u8::from_str_radix(&s[2..4], 16)
-        .map_err(|_| LorgarError::InvalidColorFormat { color: hex_str.to_string() })?;
-    let b = u8::from_str_radix(&s[4..6], 16)
-        .map_err(|_| LorgarError::InvalidColorFormat { color: hex_str.to_string() })?;
+    let r = u8::from_str_radix(&s[0..2], 16).map_err(|_| LorgarError::InvalidColorFormat {
+        color: hex_str.to_string(),
+    })?;
+    let g = u8::from_str_radix(&s[2..4], 16).map_err(|_| LorgarError::InvalidColorFormat {
+        color: hex_str.to_string(),
+    })?;
+    let b = u8::from_str_radix(&s[4..6], 16).map_err(|_| LorgarError::InvalidColorFormat {
+        color: hex_str.to_string(),
+    })?;
 
     Ok((r, g, b))
 }
@@ -126,16 +139,176 @@ pub fn build_set_active_stage_payload(stage: u8) -> Result<[u8; 8]> {
     if stage >= DPI_STAGE_COUNT {
         return Err(LorgarError::InvalidStage { stage });
     }
-    Ok([cmd::SET_ACTIVE_STAGE, 0x00, 0x00, stage, 0x00, 0x00, 0x00, 0x00])
+    Ok([
+        cmd::SET_ACTIVE_STAGE,
+        0x00,
+        0x00,
+        stage,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+    ])
 }
 
 pub fn parse_battery_percentage(raw: &[u8]) -> Result<u8> {
-    if raw.len() < 8 {
-        return Err(LorgarError::Transport(
-            "Device query response too short".into(),
-        ));
+    match InputPacket::parse(raw)?.event {
+        InputEvent::State { battery_percentage } => Ok(battery_percentage),
+        _ => Err(LorgarError::InvalidPacket(
+            "not a documented state response".into(),
+        )),
     }
-    Ok(raw[7])
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "command", rename_all = "snake_case")]
+pub enum Command {
+    SetDpi { stage: u8, dpi: u16 },
+    SetActiveStage { stage: u8 },
+    SetPolling { rate: PollingRate },
+    SetLightingMode { mode: LightingMode },
+    SetLightingColor { red: u8, green: u8, blue: u8 },
+    QueryState,
+}
+
+impl Command {
+    pub fn packet(&self) -> Result<FeaturePacket> {
+        let raw = match *self {
+            Self::SetDpi { stage, dpi } => build_set_dpi_payload(stage, dpi)?,
+            Self::SetActiveStage { stage } => build_set_active_stage_payload(stage)?,
+            Self::SetPolling { rate } => build_set_polling_rate_payload(rate),
+            Self::SetLightingMode { mode } => build_set_lighting_mode_payload(mode),
+            Self::SetLightingColor { red, green, blue } => {
+                build_set_lighting_color_payload(red, green, blue)
+            }
+            Self::QueryState => [cmd::QUERY_STATE, 0, 0, 0, 0, 0, 0, 0],
+        };
+        Ok(FeaturePacket {
+            raw,
+            command: Some(self.clone()),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FeaturePacket {
+    pub raw: [u8; 8],
+    pub command: Option<Command>,
+}
+
+impl FeaturePacket {
+    pub fn report(&self) -> [u8; 9] {
+        let mut report = [0; 9];
+        report[1..].copy_from_slice(&self.raw);
+        report
+    }
+
+    pub fn parse(bytes: &[u8]) -> Result<Self> {
+        let raw: [u8; 8] = bytes
+            .try_into()
+            .map_err(|_| LorgarError::InvalidFeatureLength { len: bytes.len() })?;
+        let candidate = match raw[0] {
+            cmd::SET_DPI => Some(Command::SetDpi {
+                stage: raw[2],
+                dpi: u16::from_le_bytes([raw[3], raw[4]]),
+            }),
+            cmd::SET_ACTIVE_STAGE => Some(Command::SetActiveStage { stage: raw[3] }),
+            cmd::SET_POLLING_RATE => match raw[3] {
+                1 => Some(PollingRate::Hz1000),
+                2 => Some(PollingRate::Hz500),
+                4 => Some(PollingRate::Hz250),
+                8 => Some(PollingRate::Hz125),
+                _ => None,
+            }
+            .map(|rate| Command::SetPolling { rate }),
+            cmd::SET_LIGHTING_MODE => match raw[3] {
+                1 => Some(LightingMode::Static),
+                2 => Some(LightingMode::Breathing),
+                3 => Some(LightingMode::ColorCycle),
+                4 => Some(LightingMode::Tapping),
+                5 => Some(LightingMode::Wave),
+                _ => None,
+            }
+            .map(|mode| Command::SetLightingMode { mode }),
+            cmd::SET_LIGHTING_COLOR => Some(Command::SetLightingColor {
+                red: raw[3],
+                green: raw[4],
+                blue: raw[5],
+            }),
+            cmd::QUERY_STATE => Some(Command::QueryState),
+            _ => None,
+        };
+        let command = candidate.filter(|c| c.packet().is_ok_and(|p| p.raw == raw));
+        Ok(Self { raw, command })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum InputEvent {
+    State { battery_percentage: u8 },
+    DpiStageChanged { stage: u8 },
+    UnknownVendor { event_code: u8 },
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct InputPacket {
+    pub report_id: Option<u8>,
+    pub event: InputEvent,
+    pub raw: Vec<u8>,
+}
+
+impl InputPacket {
+    pub fn parse(raw: &[u8]) -> Result<Self> {
+        let first = *raw
+            .first()
+            .ok_or_else(|| LorgarError::InvalidPacket("empty input report".into()))?;
+        let event = match raw {
+            [5, 0x0b, stage, 0, 0] if *stage < DPI_STAGE_COUNT => {
+                InputEvent::DpiStageChanged { stage: *stage }
+            }
+            [5, event_code, ..] => InputEvent::UnknownVendor {
+                event_code: *event_code,
+            },
+            [1, 1, ..] if raw.len() == 64 && raw[7] <= 100 => InputEvent::State {
+                battery_percentage: raw[7],
+            },
+            _ => InputEvent::Unknown,
+        };
+        Ok(Self {
+            report_id: if matches!(event, InputEvent::State { .. }) {
+                None
+            } else {
+                Some(first)
+            },
+            event,
+            raw: raw.to_vec(),
+        })
+    }
+
+    pub fn parse_for_usage(usage_page: u16, raw: &[u8]) -> Result<Self> {
+        let mut packet = Self::parse(raw)?;
+        match usage_page {
+            CONFIG_USAGE_PAGE => {
+                packet.report_id = None;
+                if !matches!(packet.event, InputEvent::State { .. }) {
+                    packet.event = InputEvent::Unknown;
+                }
+            }
+            0xff11 => {
+                packet.report_id = raw.first().copied();
+                if matches!(packet.event, InputEvent::State { .. }) {
+                    packet.event = InputEvent::Unknown;
+                }
+            }
+            _ => {
+                packet.report_id = None;
+                packet.event = InputEvent::Unknown;
+            }
+        }
+        Ok(packet)
+    }
 }
 
 #[cfg(test)]

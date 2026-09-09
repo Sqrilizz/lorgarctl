@@ -1,13 +1,13 @@
-use hidapi::HidApi;
 use crate::error::{LorgarError, Result};
 use crate::protocol::{
     build_set_active_stage_payload, build_set_dpi_payload, build_set_lighting_color_payload,
     build_set_lighting_mode_payload, build_set_polling_rate_payload, LightingMode, PollingRate,
     CONFIG_USAGE_PAGE, PRODUCT_IDS, VENDOR_ID,
 };
-use crate::transport::{HidTransport, HidapiTransport};
+use crate::transport::{DeviceLock, HidTransport, HidapiTransport};
+use hidapi::HidApi;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LorgarDeviceInfo {
     pub vendor_id: u16,
     pub product_id: u16,
@@ -24,6 +24,7 @@ pub struct LorgarDeviceInfo {
 pub struct Msa10w {
     info: LorgarDeviceInfo,
     transport: Box<dyn HidTransport + Send>,
+    _lock: Option<DeviceLock>,
 }
 
 impl Msa10w {
@@ -35,7 +36,7 @@ impl Msa10w {
             if dev.vendor_id() == VENDOR_ID && PRODUCT_IDS.contains(&dev.product_id()) {
                 let usage_page = dev.usage_page();
                 let interface_number = dev.interface_number();
-                let is_config = usage_page == CONFIG_USAGE_PAGE || interface_number == 2;
+                let is_config = is_config_interface(usage_page, interface_number);
 
                 devices.push(LorgarDeviceInfo {
                     vendor_id: dev.vendor_id(),
@@ -62,7 +63,7 @@ impl Msa10w {
             .filter(|d| {
                 d.vendor_id() == VENDOR_ID
                     && PRODUCT_IDS.contains(&d.product_id())
-                    && (d.usage_page() == CONFIG_USAGE_PAGE || d.interface_number() == 2)
+                    && is_config_interface(d.usage_page(), d.interface_number())
             })
             .collect();
 
@@ -73,29 +74,34 @@ impl Msa10w {
             });
         }
 
-        // If wired USB cable (PID 0xc600) is connected, prioritize it over wireless receiver (0xc601)
-        let target_dev = config_candidates
-            .iter()
-            .find(|d| d.product_id() == PRODUCT_IDS[0])
-            .copied()
-            .unwrap_or(config_candidates[0]);
-
-        let path = target_dev.path().to_str().unwrap_or_default();
+        let mut paths: Vec<_> = config_candidates.iter().map(|d| d.path()).collect();
+        paths.sort();
+        paths.dedup();
+        if paths.len() > 1 {
+            return Err(LorgarError::Config(
+                "multiple configuration devices found; select one with --device".into(),
+            ));
+        }
+        let path = paths[0]
+            .to_str()
+            .map_err(|_| LorgarError::Config("non-UTF8 HID path".into()))?;
         Self::open_path(path)
     }
 
     pub fn open_path(path: &str) -> Result<Self> {
+        let lock = DeviceLock::acquire()?;
         let api = HidApi::new()?;
         let c_path = std::ffi::CString::new(path).map_err(|_| LorgarError::DeviceOpenFailed {
             path: path.to_string(),
         })?;
-        let device = api.open_path(&c_path).map_err(|_| LorgarError::DeviceOpenFailed {
-            path: path.to_string(),
-        })?;
-
         let info = api
             .device_list()
-            .find(|d| d.path().to_string_lossy() == path)
+            .find(|d| {
+                d.path().to_string_lossy() == path
+                    && d.vendor_id() == VENDOR_ID
+                    && PRODUCT_IDS.contains(&d.product_id())
+                    && is_config_interface(d.usage_page(), d.interface_number())
+            })
             .map(|dev| LorgarDeviceInfo {
                 vendor_id: dev.vendor_id(),
                 product_id: dev.product_id(),
@@ -106,38 +112,68 @@ impl Msa10w {
                 usage_page: dev.usage_page(),
                 usage: dev.usage(),
                 interface_number: dev.interface_number(),
-                is_config_interface: dev.usage_page() == CONFIG_USAGE_PAGE || dev.interface_number() == 2,
+                is_config_interface: is_config_interface(dev.usage_page(), dev.interface_number()),
             })
-            .unwrap_or_else(|| LorgarDeviceInfo {
-                vendor_id: VENDOR_ID,
-                product_id: PRODUCT_IDS[1],
-                path: path.to_string(),
-                serial_number: None,
-                manufacturer_string: None,
-                product_string: Some("LORGAR MSA10W".into()),
+            .ok_or(LorgarError::ConfigInterfaceNotFound {
                 usage_page: CONFIG_USAGE_PAGE,
-                usage: 0,
-                interface_number: 2,
-                is_config_interface: true,
-            });
-
+            })?;
+        check_access(path)?;
+        let device = api.open_path(&c_path)?;
         let transport = Box::new(HidapiTransport::new(device));
-        Ok(Self { info, transport })
+        Ok(Self {
+            info,
+            transport,
+            _lock: Some(lock),
+        })
+    }
+
+    pub fn from_transport(info: LorgarDeviceInfo, transport: Box<dyn HidTransport + Send>) -> Self {
+        Self {
+            info,
+            transport,
+            _lock: None,
+        }
+    }
+
+    pub fn read_input(&self, timeout_ms: i32) -> Result<Option<Vec<u8>>> {
+        self.transport.read_input(timeout_ms)
+    }
+
+    pub fn execute(&self, command: &crate::protocol::Command) -> Result<()> {
+        self.transport.send_feature_command(&command.packet()?.raw)
+    }
+}
+
+pub fn is_config_interface(page: u16, interface: i32) -> bool {
+    page == CONFIG_USAGE_PAGE || (page == 0 && interface == 2)
+}
+
+pub fn check_access(path: &str) -> Result<()> {
+    match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+    {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            Err(LorgarError::PermissionDenied { path: path.into() })
+        }
+        Err(e) => Err(e.into()),
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct BatteryInfo {
     pub percentage: u8,
-    pub is_charging: bool,
+    pub is_charging: Option<bool>,
     pub raw_response: [u8; 64],
 }
 
 #[derive(Debug, Clone)]
 pub struct DeviceStatus {
     pub battery_percentage: u8,
-    pub is_charging: bool,
-    pub active_stage: u8,
+    pub is_charging: Option<bool>,
+    pub active_stage: Option<u8>,
     pub polling_rate: Option<PollingRate>,
     pub lighting_mode: Option<LightingMode>,
     pub raw_response: [u8; 64],
@@ -187,7 +223,7 @@ impl Msa10w {
     }
 
     pub fn query_device_state(&self) -> Result<Vec<u8>> {
-        let payload = [0x82, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let payload = crate::protocol::Command::QueryState.packet()?.raw;
         self.query_feature(&payload, 1000)
     }
 
@@ -199,8 +235,8 @@ impl Msa10w {
             ));
         }
 
-        let percentage = raw[7].min(100);
-        let is_charging = self.info.product_id == PRODUCT_IDS[0];
+        let percentage = crate::protocol::parse_battery_percentage(&raw)?;
+        let is_charging = None;
         let mut raw_response = [0u8; 64];
         let len = raw.len().min(64);
         raw_response[..len].copy_from_slice(&raw[..len]);
@@ -220,28 +256,8 @@ impl Msa10w {
             ));
         }
 
-        let mode_byte = raw[2];
-        let active_stage = raw[4];
-        let battery_percentage = raw[7].min(100);
-        let interval_byte = raw[8];
-        let is_charging = self.info.product_id == PRODUCT_IDS[0];
-
-        let lighting_mode = match mode_byte {
-            0x01 => Some(LightingMode::Static),
-            0x02 => Some(LightingMode::Breathing),
-            0x03 => Some(LightingMode::ColorCycle),
-            0x04 => Some(LightingMode::Tapping),
-            0x05 => Some(LightingMode::Wave),
-            _ => None,
-        };
-
-        let polling_rate = match interval_byte {
-            8 => Some(PollingRate::Hz125),
-            4 => Some(PollingRate::Hz250),
-            2 => Some(PollingRate::Hz500),
-            1 => Some(PollingRate::Hz1000),
-            _ => None,
-        };
+        let battery_percentage = crate::protocol::parse_battery_percentage(&raw)?;
+        let (active_stage, is_charging, lighting_mode, polling_rate) = (None, None, None, None);
 
         let mut raw_response = [0u8; 64];
         let len = raw.len().min(64);

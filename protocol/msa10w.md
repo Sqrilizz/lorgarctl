@@ -135,7 +135,7 @@ Queries the mouse configuration state. Sent as an 8-byte Feature Report:
 82 00 00 00 00 00 00 00
 ```
 
-#### Response Structure (64-byte Input Report)
+#### Response Structure (64-byte unnumbered Input Report)
 The device responds asynchronously with a 64-byte packet:
 ```text
 01 01 05 80 01 00 00 55 01 19 40 1f 10 27 e0 2e 00 ... 00
@@ -144,11 +144,19 @@ The device responds asynchronously with a 64-byte packet:
 ```
 - **Byte 7**: Battery percentage level (e.g. `0x55` = 85%).
 
+The leading `01` is payload, not a report ID. The ff10 descriptor has no Report
+ID item. Offsets above start at the first payload byte. Only byte 7 is decoded
+as a device setting; charging, active stage, lighting and polling readback are
+not established by this document. The parser conservatively recognizes the
+observed 64-byte `01 01` shape and preserves other responses as unknown.
+
 ---
 
 ## 3. High-Confidence Vendor Input Events (`Usage Page: 0xff11`, Report `0x05`)
 
-Interface `0xff11` emits 4-byte Vendor Input Reports on physical interactions.
+Interface `0xff11` uses report ID `05` with four payload bytes, giving five
+bytes in hidraw reads. Other collections share its hidraw node; they have
+different report IDs and must not be interpreted as `05` vendor events.
 
 ### Event `0x0b`: Physical DPI Stage Toggle
 ```text
@@ -170,12 +178,6 @@ Observed packets during capture:
 
 ## 4. Unconfirmed Hypotheses (Do Not Use in Production Core)
 
-### Command `0x21`: Set Active DPI Stage (Hypothesis)
-```text
-21 00 00 SS 00 00 00 00
-```
-- `SS`: Target active DPI stage index.
-
 ### Command `0x27`: Set Stage RGB Color (Hypothesis)
 ```text
 27 00 SS RR GG BB 00 00
@@ -183,11 +185,10 @@ Observed packets during capture:
 - `SS`: Target DPI stage index (`0x00` .. `0x07`)
 - `RR GG BB`: 24-bit RGB color values.
 
-### Command `0x82`: Query Configuration / State (Hypothesis)
-```text
-82 00 00 00 00 00 00 00
-```
-- Triggers a 64-byte Input Report response. Structure remains unparsed.
+The former duplicate hypothesis entries for `0x21` and `0x82` conflicted with
+the confirmed table and command descriptions above. Their existing confirmed
+status is retained. This editorial correction does not confirm any additional
+state fields.
 
 ---
 
@@ -204,3 +205,100 @@ For upcoming reverse-engineering steps, targeted USBPcap recordings from LORGAR 
 - `profile-1-2.pcapng`
 - `startup.pcapng`
 - `battery.pcapng`
+
+## 6. Linux investigation, 2026-09-05
+
+### Environment and method
+
+Physical USB device: Pixart LORGAR MSA10W_BK, VID/PID `093a:c601`.
+Configuration: `/dev/hidraw13`, interface 2, usage page `ff10`.
+Vendor events: `/dev/hidraw12`, interface 1, usage page `ff11`.
+The two interfaces resolve to the same USB parent. Separate virtual battery
+devices also advertise this VID/PID; VID/PID alone is insufficient discovery.
+No physical c600 device was available for these tests.
+
+Only the already-confirmed `82 00 00 00 00 00 00 00` query was sent. No settings
+were changed and no `0x27`, unknown feature report or output report was sent.
+The experimental variable was query cadence. Existing legacy tray/UPower
+processes remained running, so unrelated background queries cannot be ruled
+out in general. These captures record this client's feature writes and all
+input observed on its configuration/vendor handles, not system-wide USB traffic.
+
+### Reproducible observations
+
+| Run | Duration | Own queries | ff10 state responses | `05 0f` events |
+| --- | --- | --- | --- | --- |
+| Passive | 8 seconds | 0 | 0 | 0 |
+| Query every 1000 ms | 8 seconds | 8 | 8 | 8 |
+| Query every 1500 ms | 8 seconds | 6 | 6 | 6 |
+
+Both query runs returned the same vendor packet:
+
+```text
+05 0f 01 00 35
+```
+
+The 64-byte configuration response in both runs was:
+
+```text
+01 01 03 ff 01 00 00 5b 01 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+```
+
+Byte 7 is `5b` (91%). An earlier query returned 93%. No external battery
+reference was measured; these are device-reported values, not accuracy tests.
+
+Raw timestamped evidence, including descriptors:
+
+- [Passive control](captures/2026-09-05-passive.jsonl)
+- [1000 ms query run](captures/2026-09-05-query-1000ms.jsonl)
+- [1500 ms query run](captures/2026-09-05-query-1500ms.jsonl)
+- [Later query without a state response](captures/2026-09-05-no-state-response.jsonl)
+
+The later daemon capture recorded `05 0f 00 20 01` after a query, while no
+64-byte state response arrived during the three-second capture. HID interfaces
+remained present. Sleep, radio link state and user physical actions were not
+controlled or independently observed; do not label this packet as a disconnect
+event. The daemon correctly reports a state-query timeout separately from USB
+device removal.
+
+**Confidence:** high for the observed association of `0x0f` with queries on this
+c601 device in the two repeated runs. **Meaning remains UNKNOWN.** Its three
+data bytes do not increment across the repeated runs. The captures do not
+establish a counter, checksum, battery field, charging flag or radio-status bit.
+Packet read timestamps are host read times, not USB bus timestamps.
+
+### Additional descriptor findings
+
+The same configuration descriptor was read in all three runs:
+
+```text
+06 10 ff 09 01 a1 01 15 00 26 ff 00 75 08 95 40
+09 f1 81 02 09 f2 91 00 09 f3 95 08 b1 00 c0
+```
+
+This declares unnumbered 64-byte input, 64-byte output and 8-byte feature
+reports. The 64-byte output report's function is unknown and is not used.
+HIDAPI's leading synthetic zero for feature writes is not part of the 8-byte
+hardware payload.
+
+Interface 1 additionally declares report `03`: 63 feature payload bytes on
+usage page `ff00` (64 bytes including its report ID). Its function is unknown;
+the driver does not send it. Report `05` has 32 input bits on usage page `ff11`.
+These are descriptor facts for this observed device, not confirmed commands or
+claims of identical layouts on all c600/c601 firmware.
+
+### Remaining experiments
+
+`0x27` remains UNCONFIRMED. Its function cannot be established from the existing
+Linux state query. Use the vendor application with USBPcap/usbmon and change one
+DPI-stage color at a time, repeat A/B/A, and record stage/color plus packet
+direction. Confirm the command, stage numbering and reserved fields together.
+Do not issue guessed `0x27` reports from this driver.
+
+For `0x0f`, repeat the query-only experiment while independently recording
+awake/asleep, receiver-only, cable and charge conditions. Change just one
+condition per comparison and control competing clients. Preserve failures and
+timeouts as evidence. No additional field is promoted to CONFIRMED here.

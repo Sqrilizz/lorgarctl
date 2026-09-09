@@ -7,7 +7,7 @@ import org.kde.plasma.plasma5support as Plasma5Support
 PlasmoidItem {
     id: root
 
-    property string batteryText: "83%"
+    property string batteryText: "Unknown"
 
     Plasmoid.icon: "input-mouse"
     Plasmoid.title: "LORGAR Battery"
@@ -23,12 +23,14 @@ PlasmoidItem {
                 if (out.length > 0) {
                     root.batteryText = out.replace("🖱️", "").trim();
                 }
+            } else {
+                root.batteryText = "Unavailable";
             }
             disconnectSource(sourceName);
         }
 
         function updateBattery() {
-            connectSource("/home/sqrilizz/.cargo/bin/lorgarctl battery --short");
+            connectSource("lorgarctl --daemon battery --short");
         }
     }
 

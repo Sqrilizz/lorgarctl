@@ -1,0 +1,16 @@
+[package]
+name = "lorgar-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version = "1.92"
+description = "Native Linux settings app for the LORGAR MSA10W"
+
+[dependencies]
+gtk = { package = "gtk4", version = "0.11", features = ["v4_8"] }
+lorgar-core = { path = "../lorgar-core" }
+clap = { version = "4.5", features = ["derive"] }
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

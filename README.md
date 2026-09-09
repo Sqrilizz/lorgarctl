@@ -1,6 +1,6 @@
 # LORGAR MSA10W Linux Client & Protocol Driver (`lorgarctl`)
 
-[![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-stable-orange.svg?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux-green.svg?style=for-the-badge&logo=linux)](https://kernel.org)
 
@@ -14,7 +14,16 @@ Native open-source Linux client, CLI controller, and reverse-engineered HID prot
 
 ## Overview & CLI Control Hub
 
-`lorgarctl` provides full hardware control over the LORGAR MSA10W mouse on Linux without requiring proprietary Windows software or WINE. It includes an interactive **CLI Control Dashboard** that displays real-time battery status, connection details, active DPI stage, USB polling rate, and RGB lighting modes.
+`lorgarctl` implements the documented subset of MSA10W controls without requiring
+the Windows application. It is a user-space control stack, not a replacement for
+the kernel's normal mouse input driver. Unknown protocol fields remain raw.
+The old dashboard screenshot below is historical: undocumented lighting,
+polling, charging and active-stage readback are no longer presented as facts.
+
+The workspace now includes the native GTK4 `lorgar-app`, `lorgard`, reconnecting event monitoring, persistent
+profiles, Unix socket control, X11 application rules and lossless capture tools.
+See [the control-stack guide](docs/control-stack.md), [baseline audit](AUDIT.md)
+and [maintainer review](docs/maintainer-review.md) for architecture and limits.
 
 <p align="center">
   <img src="Screenshot_20260819_183825.png" alt="lorgarctl status CLI Control Dashboard" width="750">
@@ -33,7 +42,9 @@ lorgar-linux/
 ├── Screenshot_20260819_183825.png
 ├── crates/
 │   ├── lorgar-core/             # Pure Rust HID protocol & device discovery library
-│   └── lorgarctl/               # High-performance CLI application
+│   ├── lorgarctl/               # CLI application and legacy integrations
+│   ├── lorgard/                 # User daemon, cached state and profile switching
+│   └── lorgar-app/              # Native GTK4 settings, profiles and application rules
 ├── protocol/
 │   └── msa10w.md                # Reverse-engineered protocol specification
 ├── udev/
@@ -62,22 +73,47 @@ Ensure Rust and HIDAPI native build tools are installed:
 
 ```bash
 # Arch Linux / CachyOS
-sudo pacman -S base-devel pkgconf hidapi
+sudo pacman -S base-devel pkgconf hidapi dbus gtk4
 
 # Ubuntu / Debian
-sudo apt install build-essential pkg-config libudev-dev libhidapi-dev
+sudo apt install build-essential pkg-config libudev-dev libhidapi-dev libdbus-1-dev libgtk-4-dev
 
 # Fedora
-sudo dnf install gcc pkg-config systemd-devel hidapi-devel
+sudo dnf install gcc pkg-config systemd-devel hidapi-devel dbus-devel gtk4-devel
 ```
 
 ### 2. Build Release Binary
 
 ```bash
-cargo build --release
+cargo build --workspace --release --locked
 ```
 
-The compiled executable will be built at `./target/release/lorgarctl`.
+Executables: `target/release/lorgar-app`, `lorgarctl`, and `lorgard`.
+The native app needs GTK 4.8+ and Rust 1.92+ to build. For a headless build,
+use `cargo build --release -p lorgarctl -p lorgard` without GTK dependencies.
+
+### 3. Native settings app
+
+```bash
+./target/release/lorgar-app
+```
+
+Edit eight DPI stages, active stage, polling rate, lighting mode/color, saved
+profiles and reconnect/application preferences. The app connects to `lorgard`
+or starts a temporary sibling daemon, which it stops on normal exit. An already
+running daemon is left alone. Save and Apply are separate; displayed drafts are
+not fabricated hardware readback. Offline profile editing works too.
+
+The overview uses the product photo. An unfinished 3D experiment is available
+only with `lorgar-app --experimental-3d`: drag to rotate, focus and scroll
+to zoom, or use the keyboard and visible controls. The mesh is a visual
+approximation based on the product photo, not a measured CAD model. Download
+the [OBJ](assets/msa10w/msa10w.obj) with its [materials](assets/msa10w/msa10w.mtl),
+or export it with `lorgar-app --export-model NEW_DIRECTORY`.
+
+See [app installation and behavior](docs/control-stack.md#native-settings-app)
+for details. Manual controls work on X11 and Wayland; automatic foreground
+switching currently supports X11 only.
 
 ---
 
@@ -97,7 +133,7 @@ sudo udevadm trigger
 
 ### 1. Control Dashboard & Hub
 
-Display the interactive status card with battery status, active stage, polling rate, and RGB mode:
+Display device presence and battery status. Unknown readback fields are explicit:
 
 ```bash
 lorgarctl status
@@ -206,6 +242,42 @@ lorgarctl debug send-feature 20 00 00 01 00 00 00 00
 ```
 
 ---
+
+## New control-stack commands
+
+```bash
+lorgarctl monitor --json
+lorgarctl profile create gaming
+lorgarctl profile set gaming --dpi-stage 0=800 --dpi-stage 1=1600
+lorgarctl profile set gaming --polling 1000 --rgb static --color ff5500
+lorgarctl profile apply gaming
+lorgarctl profile list
+lorgarctl profile show gaming
+lorgarctl profile delete gaming
+
+lorgard --foreground auto
+lorgarctl --daemon status --json
+lorgarctl --daemon profile apply gaming
+lorgarctl --daemon monitor --json
+
+lorgarctl capture before.bin --duration 10
+lorgarctl capture after.bin --duration 10 --query-state
+lorgarctl inspect-capture after.bin --json
+lorgarctl diff-captures before.bin after.bin --json
+lorgarctl doctor --json
+lorgarctl completions bash
+```
+
+Direct clients hold exclusive ownership while running; use `--daemon` while
+`lorgard` is running. Stop legacy tray/UPower instances before switching to the
+daemon. The original tray, UPower, debug and short control spellings remain.
+Native KDE/GNOME Wayland foreground detection is not implemented; `auto`
+disables application switching there. The tested X11 backend uses EWMH and
+`xprop`; it explicitly refuses XWayland-only detection in a Wayland session.
+
+Profiles live in `$XDG_CONFIG_HOME/lorgar/config.json` (default
+`~/.config/lorgar/config.json`). See the guide for versioning, application rules,
+systemd installation, non-root permissions, IPC and verification instructions.
 
 ## Protocol Reference
 

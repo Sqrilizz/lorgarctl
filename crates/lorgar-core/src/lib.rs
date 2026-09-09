@@ -1,6 +1,13 @@
+pub mod capture;
+pub mod descriptor;
 pub mod device;
 pub mod error;
+pub mod foreground;
+pub mod ipc;
+pub mod monitor;
+pub mod profiles;
 pub mod protocol;
+pub mod storage;
 pub mod transport;
 
 pub use device::{BatteryInfo, DeviceStatus, LorgarDeviceInfo, Msa10w};

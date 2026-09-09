@@ -34,7 +34,7 @@ int lorgar_uhid_open(void) {
     ev.u.create2.vendor = 0x093a;
     ev.u.create2.product = 0xc601;
 
-    if (write(fd, &ev, sizeof(ev)) < 0) {
+    if (write(fd, &ev, sizeof(ev)) != sizeof(ev)) {
         close(fd);
         return -1;
     }
@@ -50,7 +50,7 @@ int lorgar_uhid_update_battery(int fd, unsigned char percentage) {
     ev.u.input2.data[0] = 0x01; // report id
     ev.u.input2.data[1] = percentage;
 
-    if (write(fd, &ev, sizeof(ev)) < 0) return -1;
+    if (write(fd, &ev, sizeof(ev)) != sizeof(ev)) return -1;
     return 0;
 }
 

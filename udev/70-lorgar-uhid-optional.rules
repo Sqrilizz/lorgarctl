@@ -1,0 +1,2 @@
+# Optional legacy UPower bridge only. This permits virtual HID creation for the active user.
+ACTION!="remove", KERNEL=="uhid", SUBSYSTEM=="misc", MODE="0660", TAG+="uaccess"

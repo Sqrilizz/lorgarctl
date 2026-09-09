@@ -1,0 +1,1309 @@
+mod backend;
+mod model_view;
+mod mouse_model;
+
+use backend::{Update, Work};
+use clap::Parser;
+use gtk::glib;
+use gtk::prelude::*;
+use lorgar_core::profiles::{AppRule, Applications, Config, Profile};
+use lorgar_core::LightingMode;
+use std::cell::RefCell;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::mpsc::Sender;
+
+#[derive(Clone, Parser)]
+#[command(version, about = "Native Linux settings for the LORGAR MSA10W")]
+pub struct Options {
+    #[arg(long, help = "Override the profile configuration file")]
+    config: Option<PathBuf>,
+    #[arg(long, help = "Connect to an existing daemon at this socket")]
+    socket: Option<PathBuf>,
+    #[arg(long, help = "Do not start a temporary lorgard when none is running")]
+    no_start_daemon: bool,
+    #[arg(
+        long,
+        help = "Show the unfinished experimental 3D preview instead of the product photo"
+    )]
+    experimental_3d: bool,
+    #[arg(
+        long,
+        help = "Export the approximate 3D mesh as OBJ/MTL to a new directory, without opening HID or the app"
+    )]
+    export_model: Option<PathBuf>,
+}
+
+#[derive(Default)]
+struct Model {
+    config: Config,
+    selected: Option<String>,
+    baseline: Profile,
+    dirty: bool,
+    quiet: bool,
+    busy: bool,
+    connected: bool,
+    config_valid: bool,
+    discard_on_close: bool,
+}
+
+struct Ui {
+    window: gtk::ApplicationWindow,
+    model: RefCell<Model>,
+    tx: Sender<Work>,
+    stack: gtk::Stack,
+    editor: gtk::Box,
+    profile_list: gtk::Box,
+    profile_name: gtk::Entry,
+    draft_label: gtk::Label,
+    feedback: gtk::Label,
+    connection: gtk::Label,
+    connection_detail: gtk::Label,
+    battery: gtk::Label,
+    active_stage: gtk::Label,
+    applied: gtk::Label,
+    dpi: Vec<(gtk::CheckButton, gtk::SpinButton)>,
+    polling: gtk::DropDown,
+    stage: gtk::DropDown,
+    lighting: gtk::DropDown,
+    use_color: gtk::CheckButton,
+    color: gtk::Entry,
+    color_css: gtk::CssProvider,
+    save: gtk::Button,
+    apply: gtk::Button,
+    reset: gtk::Button,
+    create: gtk::Button,
+    delete: gtk::Button,
+    restore: gtk::CheckButton,
+    default_profile: gtk::DropDown,
+    rule_process: gtk::Entry,
+    rule_profile: gtk::DropDown,
+    rules: gtk::Box,
+    add_rule: gtk::Button,
+    save_preferences: gtk::Button,
+    app_draft: RefCell<Applications>,
+    nav: Vec<gtk::Button>,
+    mouse_model: Option<model_view::ModelView>,
+}
+
+fn label(text: &str, class: &str) -> gtk::Label {
+    let label = gtk::Label::new(Some(text));
+    label.set_xalign(0.0);
+    label.add_css_class(class);
+    label
+}
+
+fn column(spacing: i32) -> gtk::Box {
+    gtk::Box::new(gtk::Orientation::Vertical, spacing)
+}
+fn row(spacing: i32) -> gtk::Box {
+    gtk::Box::new(gtk::Orientation::Horizontal, spacing)
+}
+fn button(text: &str, class: &str) -> gtk::Button {
+    let button = gtk::Button::with_label(text);
+    button.add_css_class(class);
+    button
+}
+fn section(title: &str, subtitle: &str) -> gtk::Box {
+    let box_ = column(8);
+    box_.append(&label(title, "title"));
+    let description = label(subtitle, "muted");
+    description.set_wrap(true);
+    box_.append(&description);
+    box_
+}
+fn card() -> gtk::Box {
+    let box_ = column(16);
+    box_.add_css_class("card");
+    box_
+}
+fn field(caption: &str, widget: &impl IsA<gtk::Widget>) -> gtk::Box {
+    let box_ = column(8);
+    let caption = label(caption, "field-label");
+    caption.set_mnemonic_widget(Some(widget));
+    box_.append(&caption);
+    box_.append(widget);
+    box_
+}
+fn scroll(child: &impl IsA<gtk::Widget>) -> gtk::ScrolledWindow {
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vexpand(true)
+        .child(child)
+        .build()
+}
+
+impl Ui {
+    fn new(app: &gtk::Application, tx: Sender<Work>, experimental_3d: bool) -> Rc<Self> {
+        let window = gtk::ApplicationWindow::builder()
+            .application(app)
+            .title("Lorgar Control")
+            .default_width(1160)
+            .default_height(820)
+            .build();
+        window.set_size_request(880, 640);
+        let header = gtk::HeaderBar::new();
+        header.set_title_widget(Some(&label("Lorgar Control", "window-title")));
+        window.set_titlebar(Some(&header));
+        let root = row(0);
+        let sidebar = column(12);
+        sidebar.set_width_request(188);
+        sidebar.add_css_class("sidebar");
+        let wordmark = section("LORGAR", "CONTROL  /  LINUX");
+        wordmark.add_css_class("wordmark");
+        sidebar.append(&wordmark);
+        sidebar.append(&label("YOUR DEVICE", "eyebrow"));
+        let device_name = label("MSA10W", "device-name");
+        sidebar.append(&device_name);
+        let connection = label("Connecting…", "connection");
+        connection.set_wrap(true);
+        sidebar.append(&connection);
+        let mut nav = Vec::new();
+        for name in [
+            "Overview",
+            "Sensitivity",
+            "Lighting",
+            "Profiles",
+            "Automatic profiles",
+        ] {
+            let item = button(name, "nav");
+            sidebar.append(&item);
+            nav.push(item);
+        }
+        let spacer = column(0);
+        spacer.set_vexpand(true);
+        sidebar.append(&spacer);
+        sidebar.append(&label("Independent Linux app", "small"));
+        sidebar.append(&label("MSA10W · v0.1", "small"));
+        root.append(&sidebar);
+        let body = column(0);
+        body.set_hexpand(true);
+        let top = row(16);
+        top.add_css_class("toolbar");
+        let draft_label = label("Unsaved draft", "field-label");
+        draft_label.set_hexpand(true);
+        top.append(&draft_label);
+        let reconnect = button("Reconnect", "secondary");
+        top.append(&reconnect);
+        body.append(&top);
+        let stack = gtk::Stack::new();
+        stack.set_vexpand(true);
+
+        let overview = column(24);
+        overview.add_css_class("page");
+        overview.append(&section(
+            "Made for your next move.",
+            "Your MSA10W, tuned to the way you play.",
+        ));
+        let hero = row(24);
+        hero.set_homogeneous(true);
+        let showcase = card();
+        showcase.add_css_class("showcase");
+        showcase.append(&label("LORGAR MSA10W", "eyebrow"));
+        let mouse_model = experimental_3d.then(model_view::ModelView::new);
+        if let Some(model) = &mouse_model {
+            showcase.append(&model.widget);
+        } else if let Ok(texture) =
+            gtk::gdk::Texture::from_bytes(&glib::Bytes::from_static(include_bytes!(
+                "../../../LORGAR_Advanced_MSA10W_Wireless_Gaming_MouseBlack__3-1524438479.webp"
+            )))
+        {
+            let picture = gtk::Picture::for_paintable(&texture);
+            picture.set_content_fit(gtk::ContentFit::Contain);
+            picture.set_can_shrink(true);
+            picture.set_height_request(280);
+            picture.set_alternative_text(Some("LORGAR MSA10W black gaming mouse"));
+            showcase.append(&picture);
+        }
+        hero.append(&showcase);
+        let stats = column(16);
+        let battery_card = card();
+        battery_card.append(&label("BATTERY", "eyebrow"));
+        let battery = label("—", "metric");
+        battery_card.append(&battery);
+        battery_card.append(&label("Last reported by your mouse", "small"));
+        stats.append(&battery_card);
+        let stage_card = card();
+        stage_card.append(&label("ACTIVE DPI STAGE", "eyebrow"));
+        let active_stage = label("Unknown", "stat-value");
+        stage_card.append(&active_stage);
+        stage_card.append(&label("Updates when a stage event is observed", "small"));
+        stats.append(&stage_card);
+        let applied_card = card();
+        applied_card.append(&label("LAST APPLIED PROFILE", "eyebrow"));
+        let applied = label("None", "stat-value");
+        applied.set_wrap(true);
+        applied_card.append(&applied);
+        stats.append(&applied_card);
+        hero.append(&stats);
+        overview.append(&hero);
+        let connection_detail = label("Connecting to the device service…", "muted");
+        connection_detail.set_wrap(true);
+        overview.append(&connection_detail);
+        let customize = button("Customize sensitivity", "secondary");
+        customize.set_halign(gtk::Align::Start);
+        overview.append(&customize);
+        stack.add_named(&scroll(&overview), Some("overview"));
+
+        let sensitivity = column(24);
+        sensitivity.add_css_class("page");
+        sensitivity.append(&section(
+            "Sensitivity",
+            "Include the stages you want to change. Unchecked stages stay untouched.",
+        ));
+        let dpi_grid = gtk::Grid::builder()
+            .row_spacing(12)
+            .column_spacing(12)
+            .column_homogeneous(true)
+            .build();
+        let mut dpi = Vec::new();
+        for (index, value) in [800., 1600., 2400., 3200., 4800., 6400., 8000., 12000.]
+            .iter()
+            .enumerate()
+        {
+            let box_ = card();
+            box_.add_css_class("dpi-card");
+            let include = gtk::CheckButton::with_label(&format!("Stage {index}"));
+            include.set_tooltip_text(Some("Include this stage when saving or applying"));
+            let spin = gtk::SpinButton::with_range(100., 12000., 100.);
+            spin.set_value(*value);
+            spin.set_numeric(true);
+            spin.set_sensitive(false);
+            spin.set_width_chars(5);
+            spin.set_tooltip_text(Some(&format!("DPI for stage {index}, 100 to 12000")));
+            box_.append(&include);
+            box_.append(&spin);
+            box_.append(&label("DPI", "small"));
+            dpi_grid.attach(&box_, (index % 4) as i32, (index / 4) as i32, 1, 1);
+            dpi.push((include, spin));
+        }
+        sensitivity.append(&dpi_grid);
+        let settings = row(24);
+        settings.set_homogeneous(true);
+        let stage = gtk::DropDown::from_strings(&[
+            "Leave unchanged",
+            "Stage 0",
+            "Stage 1",
+            "Stage 2",
+            "Stage 3",
+            "Stage 4",
+            "Stage 5",
+            "Stage 6",
+            "Stage 7",
+        ]);
+        let polling = gtk::DropDown::from_strings(&[
+            "Leave unchanged",
+            "125 Hz · 8 ms",
+            "250 Hz · 4 ms",
+            "500 Hz · 2 ms",
+            "1000 Hz · 1 ms",
+        ]);
+        settings.append(&field("Activate a stage", &stage));
+        settings.append(&field("Polling rate", &polling));
+        sensitivity.append(&settings);
+        sensitivity.append(&label(
+            "These are draft settings, not a readback of your mouse.",
+            "small",
+        ));
+        stack.add_named(&scroll(&sensitivity), Some("sensitivity"));
+
+        let lighting_page = column(24);
+        lighting_page.add_css_class("page");
+        lighting_page.append(&section(
+            "A little more you.",
+            "Choose a lighting effect and a color for your setup.",
+        ));
+        let lighting_card = card();
+        let lighting = gtk::DropDown::from_strings(&[
+            "Leave unchanged",
+            "Static",
+            "Breathing",
+            "Color cycle",
+            "Tapping",
+            "Wave",
+        ]);
+        lighting_card.append(&field("Lighting effect", &lighting));
+        let use_color = gtk::CheckButton::with_label("Set a custom color");
+        lighting_card.append(&use_color);
+        let color = gtk::Entry::builder()
+            .text("a879ff")
+            .max_length(7)
+            .placeholder_text("RRGGBB")
+            .build();
+        color.set_sensitive(false);
+        let color_row = row(16);
+        let preview = column(0);
+        preview.add_css_class("color-preview");
+        preview.set_size_request(56, 56);
+        color_row.append(&preview);
+        let color_field = field("Hex color", &color);
+        color_field.set_hexpand(true);
+        color_row.append(&color_field);
+        lighting_card.append(&color_row);
+        let swatches = row(10);
+        let mut swatch_buttons = Vec::new();
+        for (name, hex) in [
+            ("Violet", "a879ff"),
+            ("Red", "ff405c"),
+            ("Amber", "ffb340"),
+            ("Green", "5cda9a"),
+            ("Blue", "55baff"),
+            ("White", "ffffff"),
+        ] {
+            let swatch = button(name, "swatch");
+            swatch.add_css_class(&name.to_lowercase());
+            swatch.set_hexpand(true);
+            swatches.append(&swatch);
+            swatch_buttons.push((swatch, hex));
+        }
+        lighting_card.append(&swatches);
+        lighting_page.append(&lighting_card);
+        let note = label("Custom color behavior depends on the effect. Per-stage lighting and brightness are not available yet.", "muted");
+        note.set_wrap(true);
+        lighting_page.append(&note);
+        stack.add_named(&scroll(&lighting_page), Some("lighting"));
+
+        let profiles_page = column(24);
+        profiles_page.add_css_class("page");
+        profiles_page.append(&section(
+            "One mouse. Every playstyle.",
+            "Create a profile, load it into the editor, then apply when you're ready.",
+        ));
+        let new_row = row(12);
+        let profile_name = gtk::Entry::builder()
+            .placeholder_text("gaming")
+            .hexpand(true)
+            .max_length(64)
+            .build();
+        new_row.append(&field("New profile name", &profile_name));
+        let create = button("Create profile", "secondary");
+        create.set_valign(gtk::Align::End);
+        new_row.append(&create);
+        profiles_page.append(&new_row);
+        let profile_list = column(10);
+        profiles_page.append(&profile_list);
+        let delete = button("Delete selected profile", "danger");
+        delete.set_halign(gtk::Align::Start);
+        profiles_page.append(&delete);
+        stack.add_named(&scroll(&profiles_page), Some("profiles"));
+
+        let auto_page = column(24);
+        auto_page.add_css_class("page");
+        auto_page.append(&section(
+            "Ready when you are.",
+            "Restore a profile on reconnect, or choose one for an application.",
+        ));
+        let restore = gtk::CheckButton::with_label(
+            "Restore the last applied profile when the mouse reconnects",
+        );
+        auto_page.append(&restore);
+        let default_profile = gtk::DropDown::from_strings(&["No default"]);
+        auto_page.append(&field("Default application profile", &default_profile));
+        let native_wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
+            || std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland");
+        let availability = label(
+            if native_wayland {
+                "Application switching is unavailable on this Wayland session. You can save rules for use on X11; reconnect restoration still works."
+            } else {
+                "Application switching requires X11 with EWMH support. Match the exact executable name."
+            },
+            "notice",
+        );
+        availability.set_wrap(true);
+        auto_page.append(&availability);
+        let rule_row = row(12);
+        let rule_process = gtk::Entry::builder()
+            .placeholder_text("cs2")
+            .hexpand(true)
+            .build();
+        let rule_profile = gtk::DropDown::from_strings(&["Choose profile"]);
+        rule_row.append(&field("Executable name", &rule_process));
+        rule_row.append(&field("Profile", &rule_profile));
+        let add_rule = button("Add rule", "secondary");
+        add_rule.set_valign(gtk::Align::End);
+        rule_row.append(&add_rule);
+        auto_page.append(&rule_row);
+        let rules = column(8);
+        auto_page.append(&rules);
+        let save_preferences = button("Save automatic preferences", "secondary");
+        save_preferences.set_halign(gtk::Align::Start);
+        auto_page.append(&save_preferences);
+        stack.add_named(&scroll(&auto_page), Some("automatic"));
+
+        let editor = column(0);
+        editor.set_vexpand(true);
+        editor.append(&stack);
+        body.append(&editor);
+        let footer = row(12);
+        footer.add_css_class("footer");
+        let feedback = label(
+            "Choose settings to edit. Nothing is applied automatically.",
+            "feedback",
+        );
+        feedback.set_wrap(true);
+        feedback.set_hexpand(true);
+        feedback.set_max_width_chars(46);
+        footer.append(&feedback);
+        let reset = button("Reset draft", "secondary");
+        footer.append(&reset);
+        let save = button("Save profile", "secondary");
+        footer.append(&save);
+        let apply = button("Apply to mouse", "primary");
+        footer.append(&apply);
+        body.append(&footer);
+        root.append(&body);
+        window.set_child(Some(&root));
+        let color_css = gtk::CssProvider::new();
+        gtk::style_context_add_provider_for_display(
+            &gtk::prelude::WidgetExt::display(&window),
+            &color_css,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+        );
+        let ui = Rc::new(Self {
+            window,
+            model: RefCell::new(Model::default()),
+            tx,
+            stack,
+            editor,
+            profile_list,
+            profile_name,
+            draft_label,
+            feedback,
+            connection,
+            connection_detail,
+            battery,
+            active_stage,
+            applied,
+            dpi,
+            polling,
+            stage,
+            lighting,
+            use_color,
+            color,
+            color_css,
+            save,
+            apply,
+            reset,
+            create,
+            delete,
+            restore,
+            default_profile,
+            rule_process,
+            rule_profile,
+            rules,
+            add_rule,
+            save_preferences,
+            app_draft: RefCell::new(Applications::default()),
+            nav,
+            mouse_model,
+        });
+        ui.bind();
+        Self::clicked(&ui, &reconnect, |ui| {
+            let _ = ui.tx.send(Work::Connect);
+            ui.connection.set_text("Connecting…");
+        });
+        Self::clicked(&ui, &customize, |ui| ui.navigate(1));
+        for (swatch, hex) in swatch_buttons {
+            Self::clicked(&ui, &swatch, move |ui| {
+                ui.use_color.set_active(true);
+                ui.color.set_text(hex);
+            });
+        }
+        ui.navigate(0);
+        ui.refresh_actions();
+        ui
+    }
+
+    fn clicked(ui: &Rc<Self>, button: &gtk::Button, action: impl Fn(&Rc<Self>) + 'static) {
+        let weak = Rc::downgrade(ui);
+        button.connect_clicked(move |_| {
+            if let Some(ui) = weak.upgrade() {
+                action(&ui);
+            }
+        });
+    }
+
+    fn navigate(&self, index: usize) {
+        self.stack.set_visible_child_name(
+            [
+                "overview",
+                "sensitivity",
+                "lighting",
+                "profiles",
+                "automatic",
+            ][index],
+        );
+        for (i, nav) in self.nav.iter().enumerate() {
+            if i == index {
+                nav.add_css_class("active");
+            } else {
+                nav.remove_css_class("active");
+            }
+        }
+    }
+
+    fn message(&self, text: &str, error: bool) {
+        self.feedback.set_text(text);
+        if error {
+            self.feedback.add_css_class("error");
+        } else {
+            self.feedback.remove_css_class("error");
+        }
+    }
+
+    fn draft(&self) -> lorgar_core::Result<Profile> {
+        let mut profile = self.model.borrow().baseline.clone();
+        profile.dpi_stages.clear();
+        for (index, (included, spin)) in self.dpi.iter().enumerate() {
+            if included.is_active() {
+                profile
+                    .dpi_stages
+                    .insert(index as u8, spin.value_as_int() as u16);
+            }
+        }
+        profile.active_stage = self.stage.selected().checked_sub(1).map(|i| i as u8);
+        profile.polling = [None, Some(125), Some(250), Some(500), Some(1000)]
+            .get(self.polling.selected() as usize)
+            .copied()
+            .flatten();
+        profile.rgb = [
+            None,
+            Some(LightingMode::Static),
+            Some(LightingMode::Breathing),
+            Some(LightingMode::ColorCycle),
+            Some(LightingMode::Tapping),
+            Some(LightingMode::Wave),
+        ]
+        .get(self.lighting.selected() as usize)
+        .copied()
+        .flatten();
+        profile.color = self
+            .use_color
+            .is_active()
+            .then(|| self.color.text().trim().trim_start_matches('#').to_string());
+        profile.commands()?;
+        Ok(profile)
+    }
+
+    fn preferences(&self) -> (bool, Applications) {
+        let mut applications = self.app_draft.borrow().clone();
+        applications.default = self
+            .default_profile
+            .selected()
+            .checked_sub(1)
+            .and_then(|i| {
+                self.model
+                    .borrow()
+                    .config
+                    .profiles
+                    .keys()
+                    .nth(i as usize)
+                    .cloned()
+            });
+        (self.restore.is_active(), applications)
+    }
+
+    fn preferences_dirty(&self) -> bool {
+        let (restore, applications) = self.preferences();
+        let model = self.model.borrow();
+        restore != model.config.restore_on_reconnect || applications != model.config.applications
+    }
+
+    fn changed(&self) {
+        if self.model.borrow().quiet {
+            return;
+        }
+        let dirty = self
+            .draft()
+            .map(|draft| draft != self.model.borrow().baseline)
+            .unwrap_or(true);
+        self.model.borrow_mut().dirty = dirty;
+        if let Some(model) = &self.mouse_model {
+            model.set_accent(if self.use_color.is_active() {
+                lorgar_core::parse_hex_color(self.color.text().as_str()).ok()
+            } else {
+                None
+            });
+        }
+        if let Ok((r, g, b)) = lorgar_core::parse_hex_color(self.color.text().as_str()) {
+            self.color_css.load_from_data(&format!(
+                ".color-preview {{ background: #{r:02x}{g:02x}{b:02x}; }}"
+            ));
+            self.color.remove_css_class("invalid");
+        } else if self.use_color.is_active() {
+            self.color.add_css_class("invalid");
+        }
+        self.refresh_actions();
+    }
+
+    fn refresh_actions(&self) {
+        let model = self.model.borrow();
+        let name = model.selected.as_deref().unwrap_or("Unsaved draft");
+        self.draft_label.set_text(&format!(
+            "{}{}",
+            name,
+            if model.dirty {
+                "  ·  Unsaved changes"
+            } else {
+                "  ·  Draft settings"
+            }
+        ));
+        self.editor.set_sensitive(!model.busy);
+        self.save.set_sensitive(!model.busy && model.config_valid);
+        self.apply
+            .set_sensitive(!model.busy && model.connected && model.config_valid);
+        self.reset.set_sensitive(!model.busy && model.dirty);
+        self.delete
+            .set_sensitive(!model.busy && model.config_valid && model.selected.is_some());
+        self.create.set_sensitive(!model.busy && model.config_valid);
+        self.save_preferences
+            .set_sensitive(!model.busy && model.config_valid);
+        self.apply.set_label(if model.busy {
+            "Working…"
+        } else {
+            "Apply to mouse"
+        });
+    }
+
+    fn send(&self, work: Work) {
+        if self.model.borrow().busy {
+            return;
+        }
+        if self.tx.send(work).is_err() {
+            self.message("The background worker stopped. Reopen the app.", true);
+            return;
+        }
+        self.model.borrow_mut().busy = true;
+        self.message("Working…", false);
+        self.refresh_actions();
+    }
+
+    fn load_profile(&self, name: Option<String>) {
+        let profile = name
+            .as_ref()
+            .and_then(|name| self.model.borrow().config.profiles.get(name).cloned())
+            .unwrap_or_default();
+        {
+            let mut model = self.model.borrow_mut();
+            model.quiet = true;
+            model.selected = name;
+            model.baseline = profile.clone();
+            model.dirty = false;
+        }
+        for (index, (included, spin)) in self.dpi.iter().enumerate() {
+            let value = profile.dpi_stages.get(&(index as u8));
+            included.set_active(value.is_some());
+            spin.set_sensitive(value.is_some());
+            if let Some(value) = value {
+                spin.set_value(*value as f64);
+            }
+        }
+        self.stage
+            .set_selected(profile.active_stage.map(|s| s as u32 + 1).unwrap_or(0));
+        self.polling.set_selected(match profile.polling {
+            Some(125) => 1,
+            Some(250) => 2,
+            Some(500) => 3,
+            Some(1000) => 4,
+            _ => 0,
+        });
+        self.lighting.set_selected(match profile.rgb {
+            Some(LightingMode::Static) => 1,
+            Some(LightingMode::Breathing) => 2,
+            Some(LightingMode::ColorCycle) => 3,
+            Some(LightingMode::Tapping) => 4,
+            Some(LightingMode::Wave) => 5,
+            None => 0,
+        });
+        self.use_color.set_active(profile.color.is_some());
+        self.color.set_sensitive(profile.color.is_some());
+        self.color
+            .set_text(profile.color.as_deref().unwrap_or("a879ff"));
+        self.model.borrow_mut().quiet = false;
+        self.changed();
+    }
+
+    fn bind(self: &Rc<Self>) {
+        for (index, nav) in self.nav.iter().enumerate() {
+            Self::clicked(self, nav, move |ui| ui.navigate(index));
+        }
+        for (included, spin) in &self.dpi {
+            let weak = Rc::downgrade(self);
+            let spin_clone = spin.clone();
+            included.connect_toggled(move |check| {
+                spin_clone.set_sensitive(check.is_active());
+                if let Some(ui) = weak.upgrade() {
+                    ui.changed();
+                }
+            });
+            let weak = Rc::downgrade(self);
+            spin.connect_value_changed(move |_| {
+                if let Some(ui) = weak.upgrade() {
+                    ui.changed();
+                }
+            });
+        }
+        for dropdown in [&self.polling, &self.stage, &self.lighting] {
+            let weak = Rc::downgrade(self);
+            dropdown.connect_selected_notify(move |_| {
+                if let Some(ui) = weak.upgrade() {
+                    ui.changed();
+                }
+            });
+        }
+        let weak = Rc::downgrade(self);
+        self.color.connect_changed(move |_| {
+            if let Some(ui) = weak.upgrade() {
+                ui.changed();
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.use_color.connect_toggled(move |check| {
+            if let Some(ui) = weak.upgrade() {
+                ui.color.set_sensitive(check.is_active());
+                ui.changed();
+            }
+        });
+        Self::clicked(self, &self.reset, |ui| {
+            let selected = ui.model.borrow().selected.clone();
+            ui.load_profile(selected);
+            ui.message("Draft reset to the saved profile.", false);
+        });
+        Self::clicked(self, &self.save, |ui| {
+            let model = ui.model.borrow();
+            let Some(name) = model.selected.clone() else {
+                drop(model);
+                ui.navigate(3);
+                ui.message(
+                    "Name your new profile and choose Create to save this draft.",
+                    false,
+                );
+                return;
+            };
+            let expected = Some(model.baseline.clone());
+            drop(model);
+            match ui.draft() {
+                Ok(profile) => ui.send(Work::Save {
+                    name,
+                    profile,
+                    expected,
+                }),
+                Err(e) => ui.message(&e.to_string(), true),
+            }
+        });
+        Self::clicked(self, &self.apply, |ui| match ui.draft() {
+            Ok(profile) => {
+                let model = ui.model.borrow();
+                let name = if model.dirty {
+                    None
+                } else {
+                    model.selected.clone()
+                };
+                drop(model);
+                ui.send(Work::Apply { name, profile });
+            }
+            Err(e) => ui.message(&e.to_string(), true),
+        });
+        Self::clicked(self, &self.create, |ui| {
+            if ui.model.borrow().dirty && ui.model.borrow().selected.is_some() {
+                ui.message(
+                    "Save or reset your draft before creating another profile.",
+                    true,
+                );
+                return;
+            }
+            let profile = if ui.model.borrow().selected.is_none() {
+                match ui.draft() {
+                    Ok(profile) => profile,
+                    Err(error) => {
+                        ui.message(&error.to_string(), true);
+                        return;
+                    }
+                }
+            } else {
+                Profile::default()
+            };
+            ui.send(Work::Create {
+                name: ui.profile_name.text().trim().into(),
+                profile,
+            });
+        });
+        Self::clicked(self, &self.delete, |ui| {
+            let model = ui.model.borrow();
+            let Some(name) = model.selected.clone() else {
+                return;
+            };
+            let expected = model.baseline.clone();
+            drop(model);
+            let weak = Rc::downgrade(ui);
+            confirm(
+                &ui.window,
+                "Delete profile?",
+                &format!("Delete {name}? Your mouse settings will stay as they are."),
+                "Delete",
+                move || {
+                    if let Some(ui) = weak.upgrade() {
+                        ui.send(Work::Delete {
+                            name: name.clone(),
+                            expected: expected.clone(),
+                        });
+                    }
+                },
+            );
+        });
+        Self::clicked(self, &self.add_rule, |ui| {
+            let process = ui.rule_process.text().trim().to_string();
+            let index = ui.rule_profile.selected().checked_sub(1);
+            let profile = index.and_then(|i| {
+                ui.model
+                    .borrow()
+                    .config
+                    .profiles
+                    .keys()
+                    .nth(i as usize)
+                    .cloned()
+            });
+            let Some(profile) = profile else {
+                ui.message("Choose a saved profile for this rule.", true);
+                return;
+            };
+            if process.is_empty() {
+                ui.message("Enter an executable name, such as cs2.", true);
+                return;
+            }
+            ui.app_draft.borrow_mut().rules.push(AppRule {
+                process,
+                profile,
+                extra: Default::default(),
+            });
+            ui.rule_process.set_text("");
+            ui.render_rules();
+        });
+        Self::clicked(self, &self.save_preferences, |ui| {
+            let mut applications = ui.app_draft.borrow().clone();
+            applications.default = ui.default_profile.selected().checked_sub(1).and_then(|i| {
+                ui.model
+                    .borrow()
+                    .config
+                    .profiles
+                    .keys()
+                    .nth(i as usize)
+                    .cloned()
+            });
+            ui.send(Work::Preferences {
+                restore: ui.restore.is_active(),
+                applications,
+                expected: {
+                    let model = ui.model.borrow();
+                    (
+                        model.config.restore_on_reconnect,
+                        model.config.applications.clone(),
+                    )
+                },
+            });
+        });
+        let weak = Rc::downgrade(self);
+        self.window.connect_close_request(move |window| {
+            if let Some(ui) = weak.upgrade() {
+                if !ui.model.borrow().discard_on_close
+                    && (ui.model.borrow().dirty || ui.preferences_dirty())
+                {
+                    let weak = Rc::downgrade(&ui);
+                    confirm(
+                        window,
+                        "Discard unsaved changes?",
+                        "Your profile or automatic-profile preferences have unsaved changes.",
+                        "Discard and close",
+                        move || {
+                            if let Some(ui) = weak.upgrade() {
+                                ui.model.borrow_mut().discard_on_close = true;
+                                ui.window.close();
+                            }
+                        },
+                    );
+                    return glib::Propagation::Stop;
+                }
+            }
+            glib::Propagation::Proceed
+        });
+    }
+
+    fn render_rules(self: &Rc<Self>) {
+        while let Some(child) = self.rules.first_child() {
+            self.rules.remove(&child);
+        }
+        for (index, rule) in self.app_draft.borrow().rules.iter().enumerate() {
+            let line = row(12);
+            line.add_css_class("profile-row");
+            let text = label(
+                &format!("{}  →  {}", rule.process, rule.profile),
+                "field-label",
+            );
+            text.set_hexpand(true);
+            text.set_wrap(true);
+            line.append(&text);
+            let remove = button("Remove", "secondary");
+            line.append(&remove);
+            self.rules.append(&line);
+            Self::clicked(self, &remove, move |ui| {
+                if index < ui.app_draft.borrow().rules.len() {
+                    ui.app_draft.borrow_mut().rules.remove(index);
+                }
+                ui.render_rules();
+            });
+        }
+    }
+
+    fn render_profiles(self: &Rc<Self>, preferences: Option<(bool, Applications)>) {
+        while let Some(child) = self.profile_list.first_child() {
+            self.profile_list.remove(&child);
+        }
+        let profiles = self.model.borrow().config.profiles.clone();
+        if profiles.is_empty() {
+            self.profile_list.append(&label(
+                "No profiles yet. Create one to start saving your setup.",
+                "muted",
+            ));
+        }
+        for (name, profile) in &profiles {
+            let line = row(16);
+            line.add_css_class("profile-row");
+            let titles = column(4);
+            titles.set_hexpand(true);
+            titles.append(&label(name, "card-title"));
+            titles.append(&label(
+                &format!(
+                    "{} DPI stages · {}",
+                    profile.dpi_stages.len(),
+                    profile
+                        .polling
+                        .map(|p| format!("{p} Hz"))
+                        .unwrap_or_else(|| "polling unchanged".into())
+                ),
+                "small",
+            ));
+            line.append(&titles);
+            let load = button("Load profile", "secondary");
+            line.append(&load);
+            self.profile_list.append(&line);
+            let name = name.clone();
+            Self::clicked(self, &load, move |ui| {
+                if ui.model.borrow().dirty {
+                    ui.message(
+                        "Save or reset your draft before loading another profile.",
+                        true,
+                    );
+                    return;
+                }
+                ui.load_profile(Some(name.clone()));
+                ui.navigate(1);
+                ui.message(
+                    "Profile loaded into the editor. Apply when you're ready.",
+                    false,
+                );
+            });
+        }
+        let mut names = vec!["No default".to_string()];
+        names.extend(profiles.keys().cloned());
+        self.default_profile.set_model(Some(&gtk::StringList::new(
+            &names.iter().map(String::as_str).collect::<Vec<_>>(),
+        )));
+        names[0] = "Choose profile".into();
+        self.rule_profile.set_model(Some(&gtk::StringList::new(
+            &names.iter().map(String::as_str).collect::<Vec<_>>(),
+        )));
+        let (restore, applications) = preferences.unwrap_or_else(|| {
+            let model = self.model.borrow();
+            (
+                model.config.restore_on_reconnect,
+                model.config.applications.clone(),
+            )
+        });
+        self.restore.set_active(restore);
+        self.default_profile.set_selected(
+            applications
+                .default
+                .as_ref()
+                .and_then(|name| names.iter().position(|n| n == name))
+                .unwrap_or(0) as u32,
+        );
+        *self.app_draft.borrow_mut() = applications;
+        self.render_rules();
+    }
+
+    fn update(self: &Rc<Self>, update: Update) {
+        match update {
+            Update::Config(Ok(config)) => {
+                let preferences = self.preferences_dirty().then(|| self.preferences());
+                let valid = config.validate().is_ok();
+                {
+                    let mut model = self.model.borrow_mut();
+                    model.config = config;
+                    model.config_valid = valid;
+                }
+                self.render_profiles(preferences);
+                let selected = {
+                    let model = self.model.borrow();
+                    if model.selected.is_none() && !model.dirty {
+                        model
+                            .config
+                            .last_profile
+                            .clone()
+                            .or_else(|| model.config.profiles.keys().next().cloned())
+                    } else {
+                        None
+                    }
+                };
+                if let Some(name) = selected {
+                    self.load_profile(Some(name));
+                }
+                if !valid {
+                    self.message(
+                        "This configuration is not editable. Check it with lorgarctl doctor.",
+                        true,
+                    );
+                }
+            }
+            Update::Config(Err(error)) => {
+                self.model.borrow_mut().config_valid = false;
+                self.message(&error, true);
+            }
+            Update::Done { result, selected } => {
+                self.model.borrow_mut().busy = false;
+                match result {
+                    Ok(message) => {
+                        if let Some(name) = selected {
+                            self.load_profile((!name.is_empty()).then_some(name));
+                            self.profile_name.set_text("");
+                        }
+                        self.message(&message, false);
+                    }
+                    Err(error) => self.message(&error, true),
+                }
+            }
+            Update::Status(result) => match result {
+                Ok(response) => {
+                    let state = response.state.unwrap_or_default();
+                    self.model.borrow_mut().connected = state.device.is_some();
+                    self.connection.set_text(if state.device.is_some() {
+                        "Device available"
+                    } else {
+                        "Not connected"
+                    });
+                    self.battery.set_text(
+                        &state
+                            .battery_percentage
+                            .map(|p| format!("{p}%"))
+                            .unwrap_or_else(|| "—".into()),
+                    );
+                    self.active_stage.set_text(
+                        &state
+                            .active_stage
+                            .map(|s| format!("Stage {s}"))
+                            .unwrap_or_else(|| "Unknown".into()),
+                    );
+                    self.applied
+                        .set_text(state.applied_profile.as_deref().unwrap_or("None"));
+                    self.connection_detail.set_text(state.last_error.as_deref().unwrap_or(if state.device.is_some() { "Connected to lorgard. Your profiles are stored locally." } else { "Connect your mouse or receiver. Profiles can still be edited while offline." }));
+                }
+                Err(error) => {
+                    self.model.borrow_mut().connected = false;
+                    self.connection.set_text("Service unavailable");
+                    self.connection_detail.set_text(&error);
+                    self.battery.set_text("—");
+                    self.active_stage.set_text("Unknown");
+                    self.applied.set_text("Unavailable");
+                }
+            },
+        }
+        self.refresh_actions();
+    }
+}
+
+fn confirm(
+    parent: &gtk::ApplicationWindow,
+    title: &str,
+    text: &str,
+    action_name: &str,
+    action: impl Fn() + 'static,
+) {
+    let dialog = gtk::Window::builder()
+        .title(title)
+        .transient_for(parent)
+        .modal(true)
+        .default_width(420)
+        .resizable(false)
+        .build();
+    let content = column(20);
+    content.add_css_class("page");
+    content.append(&label(title, "card-title"));
+    let body = label(text, "muted");
+    body.set_wrap(true);
+    body.set_max_width_chars(45);
+    content.append(&body);
+    let buttons = row(12);
+    buttons.set_halign(gtk::Align::End);
+    let cancel = button("Cancel", "secondary");
+    let proceed = button(action_name, "danger");
+    buttons.append(&cancel);
+    buttons.append(&proceed);
+    content.append(&buttons);
+    dialog.set_child(Some(&content));
+    let weak = dialog.downgrade();
+    cancel.connect_clicked(move |_| {
+        if let Some(dialog) = weak.upgrade() {
+            dialog.close();
+        }
+    });
+    let weak = dialog.downgrade();
+    proceed.connect_clicked(move |_| {
+        action();
+        if let Some(dialog) = weak.upgrade() {
+            dialog.close();
+        }
+    });
+    dialog.present();
+}
+
+fn main() -> glib::ExitCode {
+    let options = Options::parse();
+    if let Some(path) = &options.export_model {
+        let result = (|| -> std::io::Result<()> {
+            std::fs::create_dir(path)?;
+            let obj = std::fs::File::create_new(path.join("msa10w.obj"))?;
+            mouse_model::Mesh::msa10w().write_obj(std::io::BufWriter::new(obj))?;
+            let mtl = std::fs::File::create_new(path.join("msa10w.mtl"))?;
+            mouse_model::Mesh::write_mtl(std::io::BufWriter::new(mtl))?;
+            println!("Exported approximate visual model to {}", path.display());
+            Ok(())
+        })();
+        return match result {
+            Ok(()) => glib::ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Model export failed: {error}");
+                glib::ExitCode::FAILURE
+            }
+        };
+    }
+    let app = gtk::Application::builder()
+        .application_id("io.github.Sqrilizz.LorgarControl")
+        .build();
+    app.connect_activate(move |app| {
+        if let Some(window) = app.active_window() {
+            window.present();
+            return;
+        }
+        let css = gtk::CssProvider::new();
+        css.load_from_data(include_str!("style.css"));
+        if let Some(display) = gtk::gdk::Display::default() {
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &css,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+        }
+        if let Some(settings) = gtk::Settings::default() {
+            settings.set_gtk_application_prefer_dark_theme(true);
+        }
+        let (tx, rx, worker) = backend::start(options.clone());
+        let ui = Ui::new(app, tx.clone(), options.experimental_3d);
+        let worker = RefCell::new(Some(worker));
+        app.connect_shutdown(move |_| {
+            let _ = tx.send(Work::Stop);
+            if let Some(worker) = worker.borrow_mut().take() {
+                let _ = worker.join();
+            }
+        });
+        let updates = ui.clone();
+        glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+            for update in rx.try_iter() {
+                updates.update(update);
+            }
+            glib::ControlFlow::Continue
+        });
+        ui.window.present();
+    });
+    app.run_with_args::<&str>(&[])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires a display; run with xvfb-run -a cargo test -p lorgar-app ui_smoke -- --ignored"]
+    fn ui_smoke() {
+        gtk::init().unwrap();
+        let app = gtk::Application::builder()
+            .application_id("io.github.Sqrilizz.LorgarControl.Tests")
+            .build();
+        app.register(None::<&gtk::gio::Cancellable>).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ui = Ui::new(&app, tx, false);
+        assert!(ui.mouse_model.is_none());
+        ui.update(Update::Config(Ok(Config::default())));
+        ui.polling.set_selected(4);
+        ui.save.emit_clicked();
+        assert_eq!(ui.stack.visible_child_name().as_deref(), Some("profiles"));
+        ui.profile_name.set_text("fresh");
+        ui.create.emit_clicked();
+        assert!(
+            matches!(rx.try_recv().unwrap(), Work::Create { name, profile } if name == "fresh" && profile.polling == Some(1000))
+        );
+        ui.update(Update::Done {
+            result: Ok("Created".into()),
+            selected: Some(String::new()),
+        });
+        let mut config = Config::default();
+        let mut profile = Profile::default();
+        profile.extra.insert("future-field".into(), true.into());
+        config.profiles.insert("gaming".into(), profile.clone());
+        ui.update(Update::Config(Ok(config.clone())));
+        assert_eq!(ui.model.borrow().selected.as_deref(), Some("gaming"));
+        assert!(!ui.apply.is_sensitive());
+        for index in 0..5 {
+            ui.navigate(index);
+        }
+        ui.dpi[0].0.set_active(true);
+        ui.dpi[0].1.set_value(800.0);
+        ui.polling.set_selected(4);
+        ui.lighting.set_selected(1);
+        ui.use_color.set_active(true);
+        ui.color.set_text("ff5500");
+        let draft = ui.draft().unwrap();
+        assert_eq!(draft.dpi_stages[&0], 800);
+        assert_eq!(draft.polling, Some(1000));
+        assert_eq!(draft.color.as_deref(), Some("ff5500"));
+        assert_eq!(draft.extra, profile.extra);
+        assert!(ui.model.borrow().dirty);
+        ui.save.emit_clicked();
+        assert!(
+            matches!(rx.try_recv().unwrap(), Work::Save { name, profile, .. } if name == "gaming" && profile == draft)
+        );
+        config.profiles.insert("gaming".into(), draft.clone());
+        ui.update(Update::Config(Ok(config.clone())));
+        ui.update(Update::Done {
+            result: Ok("Saved".into()),
+            selected: Some("gaming".into()),
+        });
+        assert!(!ui.model.borrow().dirty);
+        ui.color.set_text("🖱️");
+        assert!(ui.draft().is_err());
+        ui.reset.emit_clicked();
+        assert_eq!(ui.draft().unwrap(), draft);
+        ui.restore.set_active(true);
+        ui.rule_process.set_text("cs2");
+        ui.rule_profile.set_selected(1);
+        ui.add_rule.emit_clicked();
+        assert!(ui.preferences_dirty());
+        ui.update(Update::Config(Ok(config)));
+        assert!(ui.restore.is_active());
+        assert_eq!(ui.app_draft.borrow().rules[0].process, "cs2");
+        ui.save_preferences.emit_clicked();
+        assert!(
+            matches!(rx.try_recv().unwrap(), Work::Preferences { restore: true, applications, .. } if applications.rules.len() == 1)
+        );
+        ui.model.borrow_mut().discard_on_close = true;
+        ui.window.close();
+    }
+}

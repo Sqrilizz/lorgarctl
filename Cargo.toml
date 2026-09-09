@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "crates/lorgar-core",
     "crates/lorgarctl",
+    "crates/lorgard",
+    "crates/lorgar-app",
 ]
 
 [workspace.package]
