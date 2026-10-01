@@ -17,6 +17,8 @@
 #include <linux/workqueue.h>
 #include <linux/slab.h>
 #include <linux/mutex.h>
+#include <linux/kref.h>
+#include <linux/list.h>
 
 #define DRIVER_NAME "hid-lorgar"
 
@@ -42,8 +44,28 @@
 /* Refresh interval for battery polling in seconds */
 #define LORGAR_BATTERY_POLL_INTERVAL_SEC 60
 
+/* Idle time before marking mouse as sleeping (30 seconds) */
+#define LORGAR_SLEEP_TIMEOUT_MS 30000
+
+struct lorgar_drvdata;
+
+/* Shared state across all USB interfaces of the mouse (movement + keys + config) */
+struct lorgar_device_ctx {
+	struct list_head node;
+	struct usb_device *udev;
+	struct kref ref;
+	struct mutex lock;
+	unsigned long last_activity;
+	bool is_sleeping;
+	struct lorgar_drvdata *config_drv;
+};
+
+static LIST_HEAD(lorgar_device_list);
+static DEFINE_MUTEX(lorgar_list_lock);
+
 struct lorgar_drvdata {
 	struct hid_device *hdev;
+	struct lorgar_device_ctx *ctx;
 	struct power_supply *battery;
 	struct power_supply_desc battery_desc;
 	char battery_name[64];
@@ -60,6 +82,54 @@ struct lorgar_drvdata {
 	u8 led_g;
 	u8 led_b;
 };
+
+static void lorgar_ctx_release(struct kref *kref)
+{
+	struct lorgar_device_ctx *ctx = container_of(kref, struct lorgar_device_ctx, ref);
+
+	list_del(&ctx->node);
+	kfree(ctx);
+}
+
+static struct lorgar_device_ctx *lorgar_get_or_create_ctx(struct usb_device *udev)
+{
+	struct lorgar_device_ctx *ctx;
+
+	mutex_lock(&lorgar_list_lock);
+	list_for_each_entry(ctx, &lorgar_device_list, node) {
+		if (ctx->udev == udev) {
+			kref_get(&ctx->ref);
+			mutex_unlock(&lorgar_list_lock);
+			return ctx;
+		}
+	}
+
+	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
+	if (!ctx) {
+		mutex_unlock(&lorgar_list_lock);
+		return NULL;
+	}
+
+	ctx->udev = udev;
+	kref_init(&ctx->ref);
+	mutex_init(&ctx->lock);
+	ctx->last_activity = jiffies;
+	ctx->is_sleeping = false;
+
+	list_add(&ctx->node, &lorgar_device_list);
+	mutex_unlock(&lorgar_list_lock);
+	return ctx;
+}
+
+static void lorgar_put_ctx(struct lorgar_device_ctx *ctx)
+{
+	if (!ctx)
+		return;
+
+	mutex_lock(&lorgar_list_lock);
+	kref_put(&ctx->ref, lorgar_ctx_release);
+	mutex_unlock(&lorgar_list_lock);
+}
 
 static const enum power_supply_property lorgar_battery_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
@@ -106,6 +176,25 @@ static void lorgar_battery_work(struct work_struct *work)
 	struct lorgar_drvdata *drv = container_of(to_delayed_work(work),
 						  struct lorgar_drvdata,
 						  battery_work);
+	struct lorgar_device_ctx *ctx = drv->ctx;
+
+	if (ctx) {
+		bool now_sleeping;
+		bool notify = false;
+
+		mutex_lock(&ctx->lock);
+		now_sleeping = time_after(jiffies, ctx->last_activity + msecs_to_jiffies(LORGAR_SLEEP_TIMEOUT_MS));
+		if (now_sleeping != ctx->is_sleeping) {
+			ctx->is_sleeping = now_sleeping;
+			notify = true;
+		}
+		mutex_unlock(&ctx->lock);
+
+		if (notify) {
+			sysfs_notify(&drv->hdev->dev.kobj, NULL, "sleep_status");
+			kobject_uevent(&drv->hdev->dev.kobj, KOBJ_CHANGE);
+		}
+	}
 
 	lorgar_query_state(drv);
 
@@ -156,6 +245,38 @@ static int lorgar_battery_get_property(struct power_supply *psy,
 }
 
 /* Sysfs Attributes */
+static ssize_t sleep_status_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct hid_device *hdev = to_hid_device(dev);
+	struct lorgar_drvdata *drv = hid_get_drvdata(hdev);
+	bool sleeping;
+
+	if (!drv || !drv->ctx)
+		return -ENODEV;
+
+	mutex_lock(&drv->ctx->lock);
+	sleeping = drv->ctx->is_sleeping ||
+		   time_after(jiffies, drv->ctx->last_activity + msecs_to_jiffies(LORGAR_SLEEP_TIMEOUT_MS));
+	mutex_unlock(&drv->ctx->lock);
+
+	return sysfs_emit(buf, "%s\n", sleeping ? "sleeping" : "active");
+}
+static DEVICE_ATTR_RO(sleep_status);
+
+static ssize_t idle_seconds_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct hid_device *hdev = to_hid_device(dev);
+	struct lorgar_drvdata *drv = hid_get_drvdata(hdev);
+	unsigned long elapsed_sec;
+
+	if (!drv || !drv->ctx)
+		return -ENODEV;
+
+	elapsed_sec = (jiffies - drv->ctx->last_activity) / HZ;
+	return sysfs_emit(buf, "%lu\n", elapsed_sec);
+}
+static DEVICE_ATTR_RO(idle_seconds);
+
 static ssize_t dpi_stage_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct hid_device *hdev = to_hid_device(dev);
@@ -346,6 +467,8 @@ static ssize_t led_color_store(struct device *dev, struct device_attribute *attr
 static DEVICE_ATTR_RW(led_color);
 
 static struct attribute *lorgar_attrs[] = {
+	&dev_attr_sleep_status.attr,
+	&dev_attr_idle_seconds.attr,
 	&dev_attr_dpi_stage.attr,
 	&dev_attr_polling_rate.attr,
 	&dev_attr_led_mode.attr,
@@ -361,9 +484,25 @@ static int lorgar_raw_event(struct hid_device *hdev, struct hid_report *report,
 			    u8 *data, int size)
 {
 	struct lorgar_drvdata *drv = hid_get_drvdata(hdev);
+	struct lorgar_device_ctx *ctx;
+	bool was_sleeping = false;
 
 	if (!drv)
 		return 0;
+
+	ctx = drv->ctx;
+	if (ctx) {
+		mutex_lock(&ctx->lock);
+		was_sleeping = ctx->is_sleeping;
+		ctx->last_activity = jiffies;
+		ctx->is_sleeping = false;
+		mutex_unlock(&ctx->lock);
+
+		if (was_sleeping && ctx->config_drv) {
+			sysfs_notify(&ctx->config_drv->hdev->dev.kobj, NULL, "sleep_status");
+			kobject_uevent(&ctx->config_drv->hdev->dev.kobj, KOBJ_CHANGE);
+		}
+	}
 
 	/* Interface 2 vendor state response: 64 bytes unnumbered [01 01 05 ...] */
 	if (drv->is_config_interface && size >= 64 && data[0] == 0x01 && data[1] == 0x01) {
@@ -410,7 +549,10 @@ static bool lorgar_is_config_interface(struct hid_device *hdev)
 static int lorgar_probe(struct hid_device *hdev, const struct hid_device_id *id)
 {
 	struct lorgar_drvdata *drv;
+	struct lorgar_device_ctx *ctx = NULL;
 	struct power_supply_config psy_cfg = { 0 };
+	struct usb_interface *intf;
+	struct usb_device *udev = NULL;
 	int ret;
 
 	ret = hid_parse(hdev);
@@ -425,18 +567,24 @@ static int lorgar_probe(struct hid_device *hdev, const struct hid_device_id *id)
 		return ret;
 	}
 
-	/* Only attach vendor driver logic to interface 2 */
-	if (!lorgar_is_config_interface(hdev))
-		return 0;
+	if (hid_is_usb(hdev)) {
+		intf = to_usb_interface(hdev->dev.parent);
+		if (intf)
+			udev = interface_to_usbdev(intf);
+	}
+
+	if (udev)
+		ctx = lorgar_get_or_create_ctx(udev);
 
 	drv = devm_kzalloc(&hdev->dev, sizeof(*drv), GFP_KERNEL);
 	if (!drv) {
 		ret = -ENOMEM;
-		goto err_stop;
+		goto err_ctx;
 	}
 
 	drv->hdev = hdev;
-	drv->is_config_interface = true;
+	drv->ctx = ctx;
+	drv->is_config_interface = lorgar_is_config_interface(hdev);
 	drv->is_wired = (id->product == USB_DEVICE_ID_LORGAR_MSA10W_WIRED);
 	drv->battery_capacity = 100;
 	drv->polling_rate_hz_idx = 0x01; /* 1000 Hz */
@@ -445,46 +593,54 @@ static int lorgar_probe(struct hid_device *hdev, const struct hid_device_id *id)
 
 	hid_set_drvdata(hdev, drv);
 
-	/* Register sysfs group */
-	ret = sysfs_create_group(&hdev->dev.kobj, &lorgar_attr_group);
-	if (ret) {
-		hid_err(hdev, "failed to create sysfs group\n");
-		goto err_stop;
+	if (drv->is_config_interface) {
+		if (ctx)
+			ctx->config_drv = drv;
+
+		/* Register sysfs group */
+		ret = sysfs_create_group(&hdev->dev.kobj, &lorgar_attr_group);
+		if (ret) {
+			hid_err(hdev, "failed to create sysfs group\n");
+			goto err_ctx;
+		}
+
+		/* Register power supply */
+		snprintf(drv->battery_name, sizeof(drv->battery_name),
+			 "lorgar_mouse_battery_%s", dev_name(&hdev->dev));
+
+		drv->battery_desc.name = drv->battery_name;
+		drv->battery_desc.type = POWER_SUPPLY_TYPE_BATTERY;
+		drv->battery_desc.properties = lorgar_battery_props;
+		drv->battery_desc.num_properties = ARRAY_SIZE(lorgar_battery_props);
+		drv->battery_desc.get_property = lorgar_battery_get_property;
+
+		psy_cfg.drv_data = drv;
+		drv->battery = devm_power_supply_register(&hdev->dev,
+							  &drv->battery_desc,
+							  &psy_cfg);
+		if (IS_ERR(drv->battery)) {
+			ret = PTR_ERR(drv->battery);
+			hid_err(hdev, "failed to register power supply: %d\n", ret);
+			drv->battery = NULL;
+			goto err_sysfs;
+		}
+
+		INIT_DELAYED_WORK(&drv->battery_work, lorgar_battery_work);
+
+		/* Query initial state and start periodic timer */
+		lorgar_query_state(drv);
+		schedule_delayed_work(&drv->battery_work, msecs_to_jiffies(1000));
+
+		hid_info(hdev, "LORGAR MSA10W hardware driver registered successfully\n");
 	}
 
-	/* Register power supply */
-	snprintf(drv->battery_name, sizeof(drv->battery_name),
-		 "lorgar_mouse_battery_%s", dev_name(&hdev->dev));
-
-	drv->battery_desc.name = drv->battery_name;
-	drv->battery_desc.type = POWER_SUPPLY_TYPE_BATTERY;
-	drv->battery_desc.properties = lorgar_battery_props;
-	drv->battery_desc.num_properties = ARRAY_SIZE(lorgar_battery_props);
-	drv->battery_desc.get_property = lorgar_battery_get_property;
-
-	psy_cfg.drv_data = drv;
-	drv->battery = devm_power_supply_register(&hdev->dev,
-						  &drv->battery_desc,
-						  &psy_cfg);
-	if (IS_ERR(drv->battery)) {
-		ret = PTR_ERR(drv->battery);
-		hid_err(hdev, "failed to register power supply: %d\n", ret);
-		drv->battery = NULL;
-		goto err_sysfs;
-	}
-
-	INIT_DELAYED_WORK(&drv->battery_work, lorgar_battery_work);
-
-	/* Query initial state and start periodic timer */
-	lorgar_query_state(drv);
-	schedule_delayed_work(&drv->battery_work, msecs_to_jiffies(1000));
-
-	hid_info(hdev, "LORGAR MSA10W hardware driver registered successfully\n");
 	return 0;
 
 err_sysfs:
 	sysfs_remove_group(&hdev->dev.kobj, &lorgar_attr_group);
-err_stop:
+err_ctx:
+	if (ctx)
+		lorgar_put_ctx(ctx);
 	hid_hw_stop(hdev);
 	return ret;
 }
@@ -493,9 +649,18 @@ static void lorgar_remove(struct hid_device *hdev)
 {
 	struct lorgar_drvdata *drv = hid_get_drvdata(hdev);
 
-	if (drv && drv->is_config_interface) {
-		cancel_delayed_work_sync(&drv->battery_work);
-		sysfs_remove_group(&hdev->dev.kobj, &lorgar_attr_group);
+	if (drv) {
+		if (drv->is_config_interface) {
+			cancel_delayed_work_sync(&drv->battery_work);
+			sysfs_remove_group(&hdev->dev.kobj, &lorgar_attr_group);
+			if (drv->ctx)
+				drv->ctx->config_drv = NULL;
+		}
+
+		if (drv->ctx) {
+			lorgar_put_ctx(drv->ctx);
+			drv->ctx = NULL;
+		}
 	}
 
 	hid_hw_stop(hdev);
@@ -520,4 +685,4 @@ module_hid_driver(lorgar_driver);
 MODULE_AUTHOR("Sqrilizz");
 MODULE_DESCRIPTION("HID Driver for LORGAR MSA10W Wireless/Wired Gaming Mouse");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("1.0.0");
+MODULE_VERSION("1.1.0");
