@@ -2,3 +2,9 @@
 # Active local session access only. Explicit builtin also supports the legacy 99 filename.
 ACTION!="remove", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="093a", ATTRS{idProduct}=="c600", MODE="0660", TAG+="uaccess", RUN{builtin}+="uaccess"
 ACTION!="remove", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="093a", ATTRS{idProduct}=="c601", MODE="0660", TAG+="uaccess", RUN{builtin}+="uaccess"
+
+# Allow local user session to read/write hid-lorgar sysfs controls (dpi, polling, rgb)
+ACTION!="remove", SUBSYSTEM=="hid", DRIVERS=="hid-lorgar", MODE="0660", TAG+="uaccess"
+
+# Inform UPower that this power_supply belongs to a mouse
+SUBSYSTEM=="power_supply", ATTR{model_name}=="LORGAR MSA10W", ENV{ID_INPUT_MOUSE}="1", ENV{UPOWER_BATTERY_TYPE}="mouse"
