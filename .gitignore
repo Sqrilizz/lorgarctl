@@ -6,4 +6,4 @@ kernel/*.mod*
 kernel/.*.cmd
 kernel/Module.symvers
 kernel/modules.order
-
+kernel/protocol-test

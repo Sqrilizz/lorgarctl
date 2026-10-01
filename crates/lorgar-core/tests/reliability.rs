@@ -30,6 +30,12 @@ fn state(percentage: u8) -> Vec<u8> {
     raw
 }
 
+fn state_v2(percentage: u8) -> Vec<u8> {
+    let mut raw = vec![0; 64];
+    raw[..9].copy_from_slice(&[2, 1, 1, 0x80, 5, 0, 0, percentage, 1]);
+    raw
+}
+
 #[test]
 fn all_documented_commands_roundtrip_and_report_ids() {
     let mut commands = Vec::new();
@@ -127,6 +133,12 @@ fn unknown_fields_and_malformed_reports_remain_lossless() {
         InputPacket::parse(&state(85)).unwrap().event,
         InputEvent::State {
             battery_percentage: 85
+        }
+    );
+    assert_eq!(
+        InputPacket::parse(&state_v2(82)).unwrap().event,
+        InputEvent::State {
+            battery_percentage: 82
         }
     );
     assert!(lorgar_core::parse_battery_percentage(&state(101)).is_err());

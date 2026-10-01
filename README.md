@@ -1,10 +1,10 @@
 # LORGAR MSA10W Linux Client & Protocol Driver (`lorgarctl`)
 
 [![Rust](https://img.shields.io/badge/Rust-stable-orange.svg?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg?style=for-the-badge)](#license)
 [![Platform](https://img.shields.io/badge/Platform-Linux-green.svg?style=for-the-badge&logo=linux)](https://kernel.org)
 
-Native open-source Linux client, CLI controller, and reverse-engineered HID protocol library for the **LORGAR MSA10W** wireless gaming mouse (VID: `093a`, PID: `c600` / `c601`).
+Native open-source Linux client, optional kernel driver, CLI controller, and reverse-engineered HID protocol library for the **LORGAR MSA10W** wireless gaming mouse (VID: `093a`, PID: `c600` / `c601`).
 
 <p align="center">
   <img src="LORGAR_Advanced_MSA10W_Wireless_Gaming_MouseBlack__3-1524438479.webp" alt="LORGAR MSA10W Wireless Gaming Mouse" width="700">
@@ -15,8 +15,9 @@ Native open-source Linux client, CLI controller, and reverse-engineered HID prot
 ## Overview & CLI Control Hub
 
 `lorgarctl` implements the documented subset of MSA10W controls without requiring
-the Windows application. It is a user-space control stack, not a replacement for
-the kernel's normal mouse input driver. Unknown protocol fields remain raw.
+the Windows application. The default stack operates in user space; the optional
+`hid-lorgar` module keeps normal HID input and adds native battery/sysfs integration.
+Unknown protocol fields remain raw.
 The old dashboard screenshot below is historical: undocumented lighting,
 polling, charging and active-stage readback are no longer presented as facts.
 
@@ -45,6 +46,7 @@ lorgar-linux/
 │   ├── lorgarctl/               # CLI application and legacy integrations
 │   ├── lorgard/                 # User daemon, cached state and profile switching
 │   └── lorgar-app/              # Native GTK4 settings, profiles and application rules
+├── kernel/                      # Optional hid-lorgar module and DKMS metadata
 ├── protocol/
 │   └── msa10w.md                # Reverse-engineered protocol specification
 ├── udev/
@@ -114,6 +116,22 @@ or export it with `lorgar-app --export-model NEW_DIRECTORY`.
 See [app installation and behavior](docs/control-stack.md#native-settings-app)
 for details. Manual controls work on X11 and Wayland; automatic foreground
 switching currently supports X11 only.
+
+### 4. Optional kernel integration
+
+The optional [`hid-lorgar`](kernel/README.md) module publishes the confirmed
+battery response through Linux `power_supply` and provides administrator-owned
+sysfs setters for confirmed commands. It never infers charging from USB mode and
+does not expose undocumented response bytes as settings.
+
+The kernel cache starts unknown. DPI, polling, and lighting values become readable
+only after the driver sends or observes the corresponding confirmed operation.
+`hardware_status` becomes `online` only after a valid response or confirmed device
+event and becomes `unresponsive` after a state-query timeout.
+
+When `lorgard` is active, its 30-second state response refreshes the kernel cache
+and postpones the module's 60-second query. This avoids duplicate periodic battery
+traffic while preserving native battery updates without the daemon.
 
 ---
 
@@ -287,4 +305,6 @@ For full reverse-engineered HID command specifications, report structures, and o
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+The Rust workspace is dual-licensed under [MIT](LICENSE-MIT) or
+[Apache-2.0](LICENSE-APACHE). The kernel module is licensed under
+GPL-2.0-or-later; see its SPDX identifier.

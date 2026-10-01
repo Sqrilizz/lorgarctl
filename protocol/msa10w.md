@@ -147,8 +147,19 @@ The device responds asynchronously with a 64-byte packet:
 The leading `01` is payload, not a report ID. The ff10 descriptor has no Report
 ID item. Offsets above start at the first payload byte. Only byte 7 is decoded
 as a device setting; charging, active stage, lighting and polling readback are
-not established by this document. The parser conservatively recognizes the
-observed 64-byte `01 01` shape and preserves other responses as unknown.
+not established by this document. The parser conservatively recognizes the two
+observed 64-byte prefixes `01 01` and `02 01` and preserves other responses as
+unknown.
+
+An October 2026 live capture after a receiver power-cycle produced this second
+confirmed response shape:
+
+```text
+02 01 01 80 05 00 00 52 01 00 00 00 00 00 00 00 ...
+```
+
+Byte 7 is `0x52` (82%). The meaning of byte 0 is still unknown; accepting this
+observed prefix does not assign it a semantic name.
 
 ---
 

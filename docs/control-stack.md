@@ -18,6 +18,13 @@ original command spellings, tray and UHID integration. `lorgar-app` is a native
 GTK4 frontend; background IPC/config work runs off the UI thread. It uses the
 same typed profile and daemon API, not a second hardware implementation.
 
+The optional `kernel/hid-lorgar` module adds Linux `power_supply` integration and
+root-owned sysfs controls. Its state cache is evidence-based: battery comes only
+from a valid 64-byte `0x82` response, DPI stage only from a successful setter or
+the confirmed `05 0b SS 00 00` event, and other settings only from successful
+setters. Missing readback is `ENODATA`, not a factory-default guess. Charging is
+always unknown because no charging field has been confirmed.
+
 The daemon selects one mouse. When multiple configuration devices exist,
 selection is explicit through `--device`; c600 is not silently preferred over
 c601. Unknown usage-page metadata permits the old interface-2 fallback, but a
@@ -50,6 +57,7 @@ Install the supplied mouse rule (the legacy filename is supported):
 sudo install -m644 udev/99-lorgar-msa10w.rules /etc/udev/rules.d/99-lorgar-msa10w.rules
 sudo udevadm control --reload-rules
 sudo udevadm trigger --subsystem-match=hidraw
+sudo udevadm trigger --subsystem-match=input
 ```
 
 Reconnect the mouse/receiver, then run `lorgarctl doctor`. The rule grants the
@@ -57,6 +65,9 @@ active local login session access through `uaccess`, not world-writable HID
 access. Its explicit builtin also handles the legacy rule's position after
 systemd's seat rule. Headless/SSH users without a local active seat need an
 administrator-managed group ACL; running the daemon as root is unnecessary.
+The input rule retains the MSA10W extra-button keyboard capability while also
+marking that composite interface as part of the mouse. This prevents UPower and
+Plasma from giving the peripheral battery a keyboard icon.
 
 The optional legacy `upower` command additionally needs `/dev/uhid` access.
 Only if using that integration, install `udev/70-lorgar-uhid-optional.rules`.
@@ -76,6 +87,13 @@ Stop previously installed tray/UPower/battery-polling services when switching to
 lock. Neither root services nor other users are controlled by a per-user lock.
 Do not run competing hardware writers during reverse engineering.
 This repository does not automatically stop, install or enable system services.
+
+If `hid-lorgar` is installed, its battery query interval is 60 seconds. Every
+valid state response, including one requested by `lorgard` at its normal 30-second
+cadence, postpones the module's next query. Kernel-originated writes are serialized
+with the device's 20 ms cooldown. Sysfs setters require administrator access;
+desktop controls continue through the single user daemon and the hidraw `uaccess`
+rule.
 
 ## Native settings app
 
@@ -317,6 +335,10 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo build --workspace --release
 xvfb-run -a cargo test -p lorgar-app ui_smoke -- --ignored
+make -C kernel clean
+make -C kernel W=1
+bash -n kernel/reload.sh
+make -C kernel live-check
 ```
 
 Tests cover confirmed vectors, malformed/unknown packets, descriptor framing,

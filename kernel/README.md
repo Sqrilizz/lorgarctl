@@ -1,54 +1,105 @@
-# hid-lorgar: Native Linux Kernel Driver for LORGAR MSA10W
+# hid-lorgar
 
-Native Linux kernel driver (`hid-lorgar.ko`) for the **LORGAR MSA10W** gaming mouse (VID: `0x093a`, PID: `0xc600` Wired / `0xc601` Wireless).
+Optional native Linux HID driver for the LORGAR MSA10W (`093a:c600` wired,
+`093a:c601` wireless receiver).
 
-## Features
+The module keeps normal mouse input working and adds a `power_supply` device plus
+sysfs controls for the confirmed protocol commands. It does not decode charging,
+active DPI, polling, or lighting from the 64-byte state response. Those values are
+unknown until this driver observes a confirmed DPI event or successfully sends the
+corresponding command.
 
-- **Native Linux Power Supply Integration (`power_supply`)**:
-  - Exposes the mouse battery directly to the Linux kernel (`/sys/class/power_supply/lorgar_mouse_battery_*`).
-  - Native integration with **UPower**, **KDE Plasma Battery & Brightness**, and **GNOME Power Settings**.
-  - Internal mutex-protected queries prevent hardware timing collisions and freezes.
-- **Hardware Link State (`hardware_status`)**:
-  - `online`: Mouse is awake, transmitting packets and responding to RF queries.
-  - `asleep`: Mouse has shut off its RF radio and LEDs for power saving.
-- **Direct DPI Resolution Control (`dpi`)**:
-  - Read or set the exact DPI resolution (from `100` to `26000`) for the current active stage without any proprietary Windows software!
-- **Eco / Power-Save Mode (`power_save`)**:
-  - `1`: Automatically switches the mouse to 500 Hz and turns off all RGB LEDs, extending battery life to **80–100+ hours**.
-  - `0`: Restores full gaming performance (1000 Hz).
-- **RGB Lighting Controls**:
-  - `led_mode`: `1` (Static), `2` (Breathing), `3` (ColorCycle), `4` (Tapping), `5` (Wave).
-  - `led_color`: Hex color `RRGGBB` (`000000` = LEDs completely OFF).
-- **Physical DPI Button Sync**:
-  - Catches hardware Report `0x05` events (`0x0b` DPI toggle) and broadcasts `sysfs_notify` uevents.
+## Build and reload
 
----
-
-## Quick Reload & Test
+The running kernel's headers and a kernel-compatible compiler are required.
 
 ```bash
-cd kernel
+make
 ./reload.sh
 ```
 
-### Sysfs Controls Usage (`/sys/bus/hid/drivers/hid-lorgar/*/`):
+`reload.sh` validates administrator access before unloading the existing module.
+It compiles first, reloads the module, rebinds matching interfaces, and prints the
+recent kernel log. Reloading requires an interactive `sudo` session unless it is
+run as root.
+
+For a persistent DKMS installation on CachyOS/Arch:
 
 ```bash
-# Check hardware status (online / asleep)
+./install-dkms.sh
+```
+
+The installer installs the `dkms` package when needed, registers version 2.0.2,
+builds it for the running kernel, installs the udev and modules-load rules, and
+disables obsolete tray/UHID battery services. Kernel headers must already match
+the running kernel. Reboot once after installation to prove automatic loading.
+
+To remove the DKMS installation:
+
+```bash
+sudo dkms remove -m hid-lorgar -v 2.0.2 --all
+sudo rm -f /etc/modules-load.d/hid-lorgar.conf
+sudo rm -f /etc/udev/rules.d/99-lorgar-msa10w.rules
+sudo rm -rf /usr/src/hid-lorgar-2.0.2
+sudo depmod -a
+```
+
+## Runtime contract
+
+The configuration interface exposes attributes below
+`/sys/bus/hid/drivers/hid-lorgar/*/`:
+
+- `hardware_status`: `unknown`, `online`, or `unresponsive`. `online` requires a
+  valid state response or a confirmed physical DPI event. A successful USB write
+  alone never proves that the wireless mouse responded.
+- `dpi_stage`: last stage successfully selected by this driver or observed through
+  event `05 0b SS 00 00`.
+- `dpi`: last DPI successfully written for the active known stage.
+- `polling_rate`: last polling rate successfully written by this driver.
+- `led_mode`: last lighting mode successfully written by this driver.
+- `led_color`: last lighting color successfully written by this driver.
+
+Reading an unobserved or unwritten setting returns `ENODATA`. This is intentional:
+the MSA10W state response has no confirmed readback fields for those settings.
+Writable sysfs controls remain administrator-owned; desktop user applications use
+the `lorgard`/hidraw path granted through the supplied udev rule.
+
+Examples:
+
+```bash
 cat /sys/bus/hid/drivers/hid-lorgar/*/hardware_status
+cat /sys/class/power_supply/lorgar_mouse_battery_*/capacity
 
-# Check current active DPI resolution
-cat /sys/bus/hid/drivers/hid-lorgar/*/dpi
-
-# Set current DPI to 1200
-echo 1200 | sudo tee /sys/bus/hid/drivers/hid-lorgar/*/dpi
-
-# Turn on Eco power saving (LEDs off + 500Hz for 80+ hours battery life)
-echo 1 | sudo tee /sys/bus/hid/drivers/hid-lorgar/*/power_save
-
-# Restore 1000Hz gaming mode
-echo 0 | sudo tee /sys/bus/hid/drivers/hid-lorgar/*/power_save
-
-# Change RGB color (e.g. Neon Cyan)
+echo 1 | sudo tee /sys/bus/hid/drivers/hid-lorgar/*/dpi_stage
+echo 1400 | sudo tee /sys/bus/hid/drivers/hid-lorgar/*/dpi
+echo 1000 | sudo tee /sys/bus/hid/drivers/hid-lorgar/*/polling_rate
+echo 1 | sudo tee /sys/bus/hid/drivers/hid-lorgar/*/led_mode
 echo 00ffff | sudo tee /sys/bus/hid/drivers/hid-lorgar/*/led_color
 ```
+
+The battery starts absent with no fabricated percentage. A confirmed `0x82` state
+response makes it present and publishes byte 7 as capacity. Charging status remains
+`Unknown` for both USB product IDs because the protocol does not provide a confirmed
+charging field.
+
+The kernel query interval is 60 seconds. A state response caused by `lorgard` also
+refreshes the kernel cache and postpones the kernel's next query, so the normal
+30-second daemon cadence remains the active owner instead of creating duplicate
+traffic. All kernel-originated feature reports are serialized with a 20 ms hardware
+cooldown.
+
+## Verification
+
+```bash
+make clean
+make W=1
+modinfo ./hid-lorgar.ko
+bash -n reload.sh
+make check
+make live-check
+```
+
+After an administrator reload, verify `dmesg`, `hardware_status`, power-supply
+`present`, `capacity`, and `status`. Physical DPI synchronization requires pressing
+the hardware DPI button and observing `dpi_stage`; automated builds cannot prove
+that physical path.

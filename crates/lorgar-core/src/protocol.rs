@@ -271,7 +271,7 @@ impl InputPacket {
             [5, event_code, ..] => InputEvent::UnknownVendor {
                 event_code: *event_code,
             },
-            [1, 1, ..] if raw.len() == 64 && raw[7] <= 100 => InputEvent::State {
+            [1 | 2, 1, ..] if raw.len() == 64 && raw[7] <= 100 => InputEvent::State {
                 battery_percentage: raw[7],
             },
             _ => InputEvent::Unknown,
