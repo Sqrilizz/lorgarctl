@@ -41,22 +41,19 @@
 #define LORGAR_EVENT_REPORT_ID   0x05
 #define LORGAR_EVENT_DPI_TOGGLE  0x0b
 
-/* Idle time before marking mouse as sleeping (30 seconds) */
-#define LORGAR_SLEEP_TIMEOUT_MS 30000
-
-/* Periodic check & battery query interval while active (seconds) */
-#define LORGAR_ACTIVE_POLL_SEC 10
+/* Refresh interval for battery polling in seconds */
+#define LORGAR_BATTERY_POLL_INTERVAL_SEC 30
 
 struct lorgar_drvdata;
 
-/* Shared state across all USB interfaces of the mouse (movement + keys + config) */
+/* Shared hardware connection state across all USB interfaces */
 struct lorgar_device_ctx {
 	struct list_head node;
 	struct usb_device *udev;
 	struct kref ref;
 	struct mutex lock;
-	unsigned long last_activity;
-	bool is_sleeping;
+	unsigned long last_packet_time;
+	bool is_online;
 	struct lorgar_drvdata *config_drv;
 };
 
@@ -76,12 +73,13 @@ struct lorgar_drvdata {
 	bool is_wired;
 	u8 battery_capacity;
 	u8 active_dpi_stage;
+	u16 stage_dpis[8];
 	u8 polling_rate_hz_idx;
 	u8 led_mode;
 	u8 led_r;
 	u8 led_g;
 	u8 led_b;
-	unsigned long last_battery_query;
+	bool power_save;
 };
 
 static void lorgar_ctx_release(struct kref *kref)
@@ -114,8 +112,8 @@ static struct lorgar_device_ctx *lorgar_get_or_create_ctx(struct usb_device *ude
 	ctx->udev = udev;
 	kref_init(&ctx->ref);
 	mutex_init(&ctx->lock);
-	ctx->last_activity = jiffies;
-	ctx->is_sleeping = false;
+	ctx->last_packet_time = jiffies;
+	ctx->is_online = true;
 
 	list_add(&ctx->node, &lorgar_device_list);
 	mutex_unlock(&lorgar_list_lock);
@@ -169,8 +167,24 @@ static int lorgar_send_feature(struct lorgar_drvdata *drv, const u8 *payload, si
 static void lorgar_query_state(struct lorgar_drvdata *drv)
 {
 	u8 cmd[8] = { LORGAR_CMD_QUERY_STATE, 0, 0, 0, 0, 0, 0, 0 };
-	drv->last_battery_query = jiffies;
-	lorgar_send_feature(drv, cmd, sizeof(cmd));
+	int ret;
+
+	ret = lorgar_send_feature(drv, cmd, sizeof(cmd));
+	if (ret < 0 && drv->ctx) {
+		/* Hardware didn't respond -> mouse is asleep */
+		bool changed = false;
+		mutex_lock(&drv->ctx->lock);
+		if (drv->ctx->is_online) {
+			drv->ctx->is_online = false;
+			changed = true;
+		}
+		mutex_unlock(&drv->ctx->lock);
+
+		if (changed) {
+			sysfs_notify(&drv->hdev->dev.kobj, NULL, "hardware_status");
+			kobject_uevent(&drv->hdev->dev.kobj, KOBJ_CHANGE);
+		}
+	}
 }
 
 static void lorgar_battery_work(struct work_struct *work)
@@ -178,38 +192,11 @@ static void lorgar_battery_work(struct work_struct *work)
 	struct lorgar_drvdata *drv = container_of(to_delayed_work(work),
 						  struct lorgar_drvdata,
 						  battery_work);
-	struct lorgar_device_ctx *ctx = drv->ctx;
-	bool now_sleeping = false;
 
-	if (ctx) {
-		bool notify = false;
-
-		mutex_lock(&ctx->lock);
-		now_sleeping = time_after(jiffies, ctx->last_activity + msecs_to_jiffies(LORGAR_SLEEP_TIMEOUT_MS));
-		if (now_sleeping != ctx->is_sleeping) {
-			ctx->is_sleeping = now_sleeping;
-			notify = true;
-		}
-		mutex_unlock(&ctx->lock);
-
-		if (notify) {
-			sysfs_notify(&drv->hdev->dev.kobj, NULL, "sleep_status");
-			kobject_uevent(&drv->hdev->dev.kobj, KOBJ_CHANGE);
-		}
-	}
-
-	/* Only poll hardware state if mouse is actively awake.
-	 * If it's sleeping, do NOT wake up the wireless RF link/LEDs!
-	 */
-	if (!now_sleeping) {
-		/* Poll battery at most once every 60 seconds while awake */
-		if (time_after(jiffies, drv->last_battery_query + msecs_to_jiffies(60000))) {
-			lorgar_query_state(drv);
-		}
-	}
+	lorgar_query_state(drv);
 
 	schedule_delayed_work(&drv->battery_work,
-			      msecs_to_jiffies(LORGAR_ACTIVE_POLL_SEC * 1000));
+			      msecs_to_jiffies(LORGAR_BATTERY_POLL_INTERVAL_SEC * 1000));
 }
 
 static int lorgar_battery_get_property(struct power_supply *psy,
@@ -254,38 +241,71 @@ static int lorgar_battery_get_property(struct power_supply *psy,
 	return 0;
 }
 
-/* Sysfs Attributes */
-static ssize_t sleep_status_show(struct device *dev, struct device_attribute *attr, char *buf)
+/* Sysfs: Hardware Link Status (online = responding, asleep = radio off) */
+static ssize_t hardware_status_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct hid_device *hdev = to_hid_device(dev);
 	struct lorgar_drvdata *drv = hid_get_drvdata(hdev);
-	bool sleeping;
+	bool online;
 
 	if (!drv || !drv->ctx)
 		return -ENODEV;
 
 	mutex_lock(&drv->ctx->lock);
-	sleeping = time_after(jiffies, drv->ctx->last_activity + msecs_to_jiffies(LORGAR_SLEEP_TIMEOUT_MS));
+	online = drv->ctx->is_online;
 	mutex_unlock(&drv->ctx->lock);
 
-	return sysfs_emit(buf, "%s\n", sleeping ? "sleeping" : "active");
+	return sysfs_emit(buf, "%s\n", online ? "online" : "asleep");
 }
-static DEVICE_ATTR_RO(sleep_status);
+static DEVICE_ATTR_RO(hardware_status);
 
-static ssize_t idle_seconds_show(struct device *dev, struct device_attribute *attr, char *buf)
+/* Sysfs: Active DPI Value (read/write direct resolution in DPI, e.g. 800, 1600) */
+static ssize_t dpi_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct hid_device *hdev = to_hid_device(dev);
 	struct lorgar_drvdata *drv = hid_get_drvdata(hdev);
-	unsigned long elapsed_sec;
+	u16 current_dpi;
 
-	if (!drv || !drv->ctx)
+	if (!drv)
 		return -ENODEV;
 
-	elapsed_sec = (jiffies - drv->ctx->last_activity) / HZ;
-	return sysfs_emit(buf, "%lu\n", elapsed_sec);
+	current_dpi = drv->stage_dpis[drv->active_dpi_stage];
+	return sysfs_emit(buf, "%u\n", current_dpi);
 }
-static DEVICE_ATTR_RO(idle_seconds);
 
+static ssize_t dpi_store(struct device *dev, struct device_attribute *attr,
+			 const char *buf, size_t count)
+{
+	struct hid_device *hdev = to_hid_device(dev);
+	struct lorgar_drvdata *drv = hid_get_drvdata(hdev);
+	u32 target_dpi;
+	u8 cmd[8] = { 0 };
+	int ret;
+
+	if (!drv)
+		return -ENODEV;
+
+	ret = kstrtou32(buf, 0, &target_dpi);
+	if (ret < 0 || target_dpi < 100 || target_dpi > 26000)
+		return -EINVAL;
+
+	/* Command 0x26: Set DPI value for stage */
+	cmd[0] = LORGAR_CMD_SET_DPI;
+	cmd[1] = 0x00;
+	cmd[2] = drv->active_dpi_stage;
+	cmd[3] = target_dpi & 0xff;
+	cmd[4] = (target_dpi >> 8) & 0xff;
+
+	ret = lorgar_send_feature(drv, cmd, sizeof(cmd));
+	if (ret < 0)
+		return ret;
+
+	drv->stage_dpis[drv->active_dpi_stage] = (u16)target_dpi;
+	return count;
+}
+static DEVICE_ATTR_RW(dpi);
+
+/* Sysfs: Active DPI Stage Index (0..7) */
 static ssize_t dpi_stage_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct hid_device *hdev = to_hid_device(dev);
@@ -321,10 +341,12 @@ static ssize_t dpi_stage_store(struct device *dev, struct device_attribute *attr
 		return ret;
 
 	drv->active_dpi_stage = stage;
+	sysfs_notify(&hdev->dev.kobj, NULL, "dpi");
 	return count;
 }
 static DEVICE_ATTR_RW(dpi_stage);
 
+/* Sysfs: Polling Rate (125, 250, 500, 1000 Hz) */
 static ssize_t polling_rate_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct hid_device *hdev = to_hid_device(dev);
@@ -382,6 +404,7 @@ static ssize_t polling_rate_store(struct device *dev, struct device_attribute *a
 }
 static DEVICE_ATTR_RW(polling_rate);
 
+/* Sysfs: LED Lighting Mode (1: Static, 2: Breathing, 3: Cycle, 4: Tapping, 5: Wave) */
 static ssize_t led_mode_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct hid_device *hdev = to_hid_device(dev);
@@ -427,6 +450,7 @@ static ssize_t led_mode_store(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RW(led_mode);
 
+/* Sysfs: LED Color (HEX RRGGBB, 000000 = lights completely OFF) */
 static ssize_t led_color_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct hid_device *hdev = to_hid_device(dev);
@@ -475,13 +499,63 @@ static ssize_t led_color_store(struct device *dev, struct device_attribute *attr
 }
 static DEVICE_ATTR_RW(led_color);
 
+/* Sysfs: Eco / Power-Save Mode (1 = RGB off & 500 Hz, 0 = normal 1000 Hz) */
+static ssize_t power_save_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct hid_device *hdev = to_hid_device(dev);
+	struct lorgar_drvdata *drv = hid_get_drvdata(hdev);
+
+	if (!drv)
+		return -ENODEV;
+
+	return sysfs_emit(buf, "%u\n", drv->power_save ? 1 : 0);
+}
+
+static ssize_t power_save_store(struct device *dev, struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct hid_device *hdev = to_hid_device(dev);
+	struct lorgar_drvdata *drv = hid_get_drvdata(hdev);
+	bool enable;
+	int ret;
+
+	if (!drv)
+		return -ENODEV;
+
+	ret = kstrtobool(buf, &enable);
+	if (ret < 0)
+		return -EINVAL;
+
+	drv->power_save = enable;
+
+	if (enable) {
+		/* Turn off LED and set 500 Hz for 80+ hours of battery life */
+		u8 led_cmd[8] = { LORGAR_CMD_LIGHT_COLOR, 0, 0, 0, 0, 0, 0, 0 };
+		u8 poll_cmd[8] = { LORGAR_CMD_POLL_RATE, 0, 0, 0x02, 0, 0, 0, 0 };
+
+		lorgar_send_feature(drv, led_cmd, sizeof(led_cmd));
+		lorgar_send_feature(drv, poll_cmd, sizeof(poll_cmd));
+		drv->led_r = drv->led_g = drv->led_b = 0;
+		drv->polling_rate_hz_idx = 0x02;
+	} else {
+		/* Restore 1000 Hz */
+		u8 poll_cmd[8] = { LORGAR_CMD_POLL_RATE, 0, 0, 0x01, 0, 0, 0, 0 };
+		lorgar_send_feature(drv, poll_cmd, sizeof(poll_cmd));
+		drv->polling_rate_hz_idx = 0x01;
+	}
+
+	return count;
+}
+static DEVICE_ATTR_RW(power_save);
+
 static struct attribute *lorgar_attrs[] = {
-	&dev_attr_sleep_status.attr,
-	&dev_attr_idle_seconds.attr,
+	&dev_attr_hardware_status.attr,
+	&dev_attr_dpi.attr,
 	&dev_attr_dpi_stage.attr,
 	&dev_attr_polling_rate.attr,
 	&dev_attr_led_mode.attr,
 	&dev_attr_led_color.attr,
+	&dev_attr_power_save.attr,
 	NULL,
 };
 
@@ -494,12 +568,24 @@ static int lorgar_raw_event(struct hid_device *hdev, struct hid_report *report,
 {
 	struct lorgar_drvdata *drv = hid_get_drvdata(hdev);
 	struct lorgar_device_ctx *ctx;
-	bool is_user_activity = false;
+	bool was_asleep = false;
 
 	if (!drv)
 		return 0;
 
 	ctx = drv->ctx;
+	if (ctx) {
+		mutex_lock(&ctx->lock);
+		was_asleep = !ctx->is_online;
+		ctx->last_packet_time = jiffies;
+		ctx->is_online = true;
+		mutex_unlock(&ctx->lock);
+
+		if (was_asleep && ctx->config_drv) {
+			sysfs_notify(&ctx->config_drv->hdev->dev.kobj, NULL, "hardware_status");
+			kobject_uevent(&ctx->config_drv->hdev->dev.kobj, KOBJ_CHANGE);
+		}
+	}
 
 	/* Interface 2 vendor state response: 64 bytes unnumbered [01 01 05 ...] */
 	if (drv->is_config_interface && size >= 64 && data[0] == 0x01 && data[1] == 0x01) {
@@ -512,7 +598,6 @@ static int lorgar_raw_event(struct hid_device *hdev, struct hid_report *report,
 					power_supply_changed(drv->battery);
 			}
 		}
-		/* Internal battery response - NOT physical user activity! */
 		return 0;
 	}
 
@@ -524,27 +609,7 @@ static int lorgar_raw_event(struct hid_device *hdev, struct hid_report *report,
 		if (event_type == LORGAR_EVENT_DPI_TOGGLE) {
 			drv->active_dpi_stage = stage;
 			sysfs_notify(&hdev->dev.kobj, NULL, "dpi_stage");
-			is_user_activity = true; /* Physical button press */
-		}
-	} else if (!drv->is_config_interface) {
-		/* Movement or click from mouse (interface 0) or keyboard (interface 1) */
-		is_user_activity = true;
-	}
-
-	if (is_user_activity && ctx) {
-		bool was_sleeping;
-
-		mutex_lock(&ctx->lock);
-		was_sleeping = ctx->is_sleeping;
-		ctx->last_activity = jiffies;
-		ctx->is_sleeping = false;
-		mutex_unlock(&ctx->lock);
-
-		if (was_sleeping && ctx->config_drv) {
-			sysfs_notify(&ctx->config_drv->hdev->dev.kobj, NULL, "sleep_status");
-			kobject_uevent(&ctx->config_drv->hdev->dev.kobj, KOBJ_CHANGE);
-			/* Immediately schedule a battery query on wake */
-			mod_delayed_work(system_wq, &ctx->config_drv->battery_work, msecs_to_jiffies(1000));
+			sysfs_notify(&hdev->dev.kobj, NULL, "dpi");
 		}
 	}
 
@@ -608,6 +673,17 @@ static int lorgar_probe(struct hid_device *hdev, const struct hid_device_id *id)
 	drv->battery_capacity = 100;
 	drv->polling_rate_hz_idx = 0x01; /* 1000 Hz */
 	drv->led_mode = 1;
+
+	/* Default MSA10W DPI stages */
+	drv->stage_dpis[0] = 800;
+	drv->stage_dpis[1] = 1200;
+	drv->stage_dpis[2] = 2400;
+	drv->stage_dpis[3] = 3200;
+	drv->stage_dpis[4] = 6400;
+	drv->stage_dpis[5] = 12000;
+	drv->stage_dpis[6] = 18000;
+	drv->stage_dpis[7] = 26000;
+
 	mutex_init(&drv->lock);
 
 	hid_set_drvdata(hdev, drv);
@@ -704,4 +780,4 @@ module_hid_driver(lorgar_driver);
 MODULE_AUTHOR("Sqrilizz");
 MODULE_DESCRIPTION("HID Driver for LORGAR MSA10W Wireless/Wired Gaming Mouse");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("1.2.0");
+MODULE_VERSION("1.3.0");
