@@ -1,0 +1,33 @@
+name: Kernel Module
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'kernel/**'
+      - '.github/workflows/kernel.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'kernel/**'
+      - '.github/workflows/kernel.yml'
+
+jobs:
+  kernel-check:
+    name: Build & Check Kernel Module
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kernel headers and build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            linux-headers-generic \
+            build-essential \
+            kmod
+
+      - name: Run kernel check and protocol tests
+        run: |
+          make -C kernel check

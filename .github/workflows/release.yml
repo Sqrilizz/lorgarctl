@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build & Package Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev \
+            libglib2.0-dev \
+            libudev-dev
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binaries
+        run: cargo build --workspace --release --locked
+
+      - name: Prepare release archive
+        run: |
+          RELEASE_DIR="lorgar-${{ github.ref_name }}-linux-x86_64"
+          mkdir -p "$RELEASE_DIR/bin"
+          cp target/release/lorgarctl "$RELEASE_DIR/bin/"
+          cp target/release/lorgard "$RELEASE_DIR/bin/"
+          cp target/release/lorgar-app "$RELEASE_DIR/bin/"
+          cp -r udev systemd desktop plasmoid kernel assets "$RELEASE_DIR/"
+          cp README.md LICENSE-MIT LICENSE-APACHE "$RELEASE_DIR/"
+
+          tar -czf "$RELEASE_DIR.tar.gz" "$RELEASE_DIR"
+          sha256sum "$RELEASE_DIR.tar.gz" > "$RELEASE_DIR.tar.gz.sha256"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            lorgar-*.tar.gz
+            lorgar-*.tar.gz.sha256
+          generate_release_notes: true

@@ -1,0 +1,51 @@
+name: Lint & Validation
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: Code Formatting, Clippy & Assets Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev \
+            libglib2.0-dev \
+            libudev-dev \
+            desktop-file-utils \
+            udev
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy linter
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Validate .desktop entry
+        run: desktop-file-validate desktop/io.github.Sqrilizz.LorgarControl.desktop
+
+      - name: Validate udev rules
+        run: udevadm verify udev/*.rules
+
+      - name: Validate shell scripts syntax
+        run: bash -n kernel/*.sh tools/*.sh
