@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 415" width="100%" height="100%">
   <defs>
     <style>
-      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 24px; font-weight: 700; fill: #ffffff; }
-      .badge-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 600; fill: #ffffff; }
-      .section-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 600; fill: #c9d1d9; }
+      .title { font-family: "DejaVu Sans", "Noto Sans", sans-serif; font-size: 24px; font-weight: 700; fill: #ffffff; }
+      .badge-label { font-family: "DejaVu Sans", "Noto Sans", sans-serif; font-size: 11px; font-weight: 600; fill: #ffffff; }
+      .section-title { font-family: "DejaVu Sans", "Noto Sans", sans-serif; font-size: 13px; font-weight: 600; fill: #c9d1d9; }
     </style>
   </defs>
 
@@ -153,7 +153,7 @@
 <rect x="129.1" y="118.8" width="10.9" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="3" y="3" width="131.5" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="6" y="14" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x01: DPI &amp; LED</text>
+      <text x="6" y="14" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x01: DPI &amp; LED</text>
     </g>
 <rect x="0.0" y="134.0" width="10.9" height="10.8" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="12.9" y="134.0" width="10.9" height="10.8" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -267,7 +267,7 @@
 <rect x="129.1" y="249.2" width="10.9" height="10.8" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="3" y="137" width="134" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="6" y="148" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x02: Sensor &amp; Sleep</text>
+      <text x="6" y="148" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x02: Sensor &amp; Sleep</text>
     </g>
 <rect x="144.0" y="0.0" width="10.2" height="11.7" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="156.2" y="0.0" width="10.2" height="11.7" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -343,7 +343,7 @@
 <rect x="278.8" y="68.3" width="10.2" height="11.7" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="147" y="3" width="139" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="150" y="14" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x03: Stage Palette</text>
+      <text x="150" y="14" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x03: Stage Palette</text>
     </g>
 <rect x="144.0" y="84.0" width="10.2" height="10.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="156.2" y="84.0" width="10.2" height="10.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -443,7 +443,7 @@
 <rect x="278.8" y="169.8" width="10.2" height="10.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="147" y="87" width="139" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="150" y="98" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x04: Debounce &amp; Fire</text>
+      <text x="150" y="98" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x04: Debounce &amp; Fire</text>
     </g>
 <rect x="144.0" y="184.0" width="10.2" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="156.2" y="184.0" width="10.2" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -519,7 +519,7 @@
 <rect x="278.8" y="249.0" width="10.2" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="147" y="187" width="139" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="150" y="198" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x07: Button Remap</text>
+      <text x="150" y="198" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x07: Button Remap</text>
     </g>
 <rect x="293.0" y="0.0" width="10.4" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="305.4" y="0.0" width="10.4" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -583,7 +583,7 @@
 <rect x="429.6" y="49.6" width="10.4" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="296" y="3" width="138.0" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="299" y="14" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x05: DPI Bank 1</text>
+      <text x="299" y="14" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x05: DPI Bank 1</text>
     </g>
 <rect x="293.0" y="64.0" width="10.4" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="305.4" y="64.0" width="10.4" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -647,7 +647,7 @@
 <rect x="429.6" y="113.6" width="10.4" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="296" y="67" width="138.0" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="299" y="78" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x06: DPI Bank 2</text>
+      <text x="299" y="78" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x06: DPI Bank 2</text>
     </g>
 <rect x="293.0" y="128.0" width="10.4" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="305.4" y="128.0" width="10.4" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -711,7 +711,7 @@
 <rect x="429.6" y="180.8" width="10.4" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="296" y="131" width="125.0" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="299" y="142" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x08: Macros A</text>
+      <text x="299" y="142" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x08: Macros A</text>
     </g>
 <rect x="293.0" y="196.0" width="10.4" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="305.4" y="196.0" width="10.4" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -775,7 +775,7 @@
 <rect x="429.6" y="248.8" width="10.4" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="296" y="199" width="125.0" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="299" y="210" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x09: Macros B</text>
+      <text x="299" y="210" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x09: Macros B</text>
     </g>
   </g>
 
@@ -839,7 +839,7 @@
 <rect x="125.5" y="49.6" width="10.5" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="3" y="3" width="99.0" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="6" y="14" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x20: PollRate</text>
+      <text x="6" y="14" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x20: PollRate</text>
     </g>
 <rect x="0.0" y="64.0" width="10.5" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="12.5" y="64.0" width="10.5" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -898,7 +898,7 @@
 <rect x="125.5" y="113.6" width="10.5" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="3" y="67" width="118.5" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="6" y="78" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x21: ActiveStage</text>
+      <text x="6" y="78" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x21: ActiveStage</text>
     </g>
 <rect x="0.0" y="128.0" width="10.5" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="12.5" y="128.0" width="10.5" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -957,7 +957,7 @@
 <rect x="125.5" y="180.8" width="10.5" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="3" y="131" width="86.0" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="6" y="142" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x26: SetDPI</text>
+      <text x="6" y="142" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x26: SetDPI</text>
     </g>
 <rect x="0.0" y="196.0" width="10.5" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="12.5" y="196.0" width="10.5" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -1016,7 +1016,7 @@
 <rect x="125.5" y="248.8" width="10.5" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="3" y="199" width="112.0" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="6" y="210" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x82: StateQuery</text>
+      <text x="6" y="210" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x82: StateQuery</text>
     </g>
 <rect x="140.0" y="0.0" width="10.2" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="152.2" y="0.0" width="10.2" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -1080,7 +1080,7 @@
 <rect x="274.8" y="49.6" width="10.2" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="143" y="3" width="105.5" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="146" y="14" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x22: LightMode</text>
+      <text x="146" y="14" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x22: LightMode</text>
     </g>
 <rect x="140.0" y="64.0" width="10.2" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="152.2" y="64.0" width="10.2" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -1144,7 +1144,7 @@
 <rect x="274.8" y="113.6" width="10.2" height="10.4" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="143" y="67" width="99.0" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="146" y="78" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x23: RGBColor</text>
+      <text x="146" y="78" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x23: RGBColor</text>
     </g>
 <rect x="140.0" y="128.0" width="10.2" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="152.2" y="128.0" width="10.2" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -1208,7 +1208,7 @@
 <rect x="274.8" y="180.8" width="10.2" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="143" y="131" width="112.0" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="146" y="142" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x27: StageColor</text>
+      <text x="146" y="142" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x27: StageColor</text>
     </g>
 <rect x="140.0" y="196.0" width="10.2" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="152.2" y="196.0" width="10.2" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -1272,7 +1272,7 @@
 <rect x="274.8" y="248.8" width="10.2" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="143" y="199" width="125.0" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="146" y="210" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x05: VendorEvents</text>
+      <text x="146" y="210" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">0x05: VendorEvents</text>
     </g>
 <rect x="289.0" y="0.0" width="10.8" height="10.5" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="301.8" y="0.0" width="10.8" height="10.5" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -1324,7 +1324,7 @@
 <rect x="429.2" y="37.5" width="10.8" height="10.5" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="292" y="3" width="118.5" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="295" y="14" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">hid-lorgar (DKMS)</text>
+      <text x="295" y="14" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">hid-lorgar (DKMS)</text>
     </g>
 <rect x="289.0" y="52.0" width="10.8" height="10.5" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="301.8" y="52.0" width="10.8" height="10.5" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -1376,7 +1376,7 @@
 <rect x="429.2" y="89.5" width="10.8" height="10.5" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="292" y="55" width="125.0" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="295" y="66" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">power_supply sysfs</text>
+      <text x="295" y="66" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">power_supply sysfs</text>
     </g>
 <rect x="289.0" y="104.0" width="10.8" height="10.5" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="301.8" y="104.0" width="10.8" height="10.5" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -1428,7 +1428,7 @@
 <rect x="429.2" y="141.5" width="10.8" height="10.5" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="292" y="107" width="99.0" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="295" y="118" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">lorgard Daemon</text>
+      <text x="295" y="118" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">lorgard Daemon</text>
     </g>
 <rect x="289.0" y="156.0" width="10.8" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="301.8" y="156.0" width="10.8" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -1480,7 +1480,7 @@
 <rect x="429.2" y="195.0" width="10.8" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="292" y="159" width="105.5" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="295" y="170" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">lorgarctl &amp; TUI</text>
+      <text x="295" y="170" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">lorgarctl &amp; TUI</text>
     </g>
 <rect x="289.0" y="210.0" width="10.8" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="301.8" y="210.0" width="10.8" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -1532,7 +1532,7 @@
 <rect x="429.2" y="249.0" width="10.8" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="292" y="213" width="105.5" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="295" y="224" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">UPower &amp; Plasma</text>
+      <text x="295" y="224" font-family="'DejaVu Sans', 'Noto Sans', sans-serif" font-size="9px" font-weight="700" fill="#ffffff">UPower &amp; Plasma</text>
     </g>
   </g>
 </svg>
