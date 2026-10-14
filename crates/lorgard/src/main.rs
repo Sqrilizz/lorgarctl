@@ -79,9 +79,41 @@ struct Daemon {
     last_selection: Option<String>,
     last_warning: Option<String>,
     restore: bool,
+    notified_low: bool,
+    notified_critical: bool,
 }
 
 impl Daemon {
+    fn check_battery_notification(&mut self, percentage: u8) {
+        if percentage <= 10 {
+            if !self.notified_critical {
+                lorgar_core::notify::send_desktop_notification(
+                    "LORGAR MSA10W: Battery Critical",
+                    &format!("Battery is at {percentage}%! Mouse may power off soon. Connect charging cable."),
+                    lorgar_core::notify::Urgency::Critical,
+                    Some("battery-caution"),
+                );
+                self.notified_critical = true;
+                self.notified_low = true;
+            }
+        } else if percentage <= 20 {
+            if !self.notified_low {
+                lorgar_core::notify::send_desktop_notification(
+                    "LORGAR MSA10W: Low Battery",
+                    &format!(
+                        "Battery is at {percentage}%. Consider plugging in the charging cable."
+                    ),
+                    lorgar_core::notify::Urgency::Normal,
+                    Some("battery-low"),
+                );
+                self.notified_low = true;
+            }
+        } else if percentage > 25 {
+            self.notified_low = false;
+            self.notified_critical = false;
+        }
+    }
+
     fn warn(&mut self, message: String) {
         if self.last_warning.as_ref() != Some(&message) {
             eprintln!("lorgard: {message}");
@@ -187,6 +219,11 @@ impl Daemon {
         let connected = events
             .iter()
             .any(|e| matches!(e.event, Event::Connected { .. }));
+        for event in &events {
+            if let Event::BatteryChanged { percentage } = event.event {
+                self.check_battery_notification(percentage);
+            }
+        }
         for event in events {
             self.log.push(event);
         }
@@ -259,6 +296,8 @@ fn run(args: Args) -> Result<()> {
         last_selection: None,
         last_warning: None,
         restore: args.restore_last_profile,
+        notified_low: false,
+        notified_critical: false,
     };
     let start = Instant::now();
     let mut next_config = 0;

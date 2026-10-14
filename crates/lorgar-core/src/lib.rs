@@ -5,6 +5,7 @@ pub mod error;
 pub mod foreground;
 pub mod ipc;
 pub mod monitor;
+pub mod notify;
 pub mod profiles;
 pub mod protocol;
 pub mod storage;
@@ -12,6 +13,7 @@ pub mod transport;
 
 pub use device::{BatteryInfo, DeviceStatus, LorgarDeviceInfo, Msa10w};
 pub use error::{LorgarError, Result};
+pub use notify::{send_desktop_notification, Urgency};
 pub use protocol::{
     build_set_active_stage_payload, build_set_dpi_payload, build_set_lighting_color_payload,
     build_set_lighting_mode_payload, build_set_polling_rate_payload, build_set_stage_color_payload,

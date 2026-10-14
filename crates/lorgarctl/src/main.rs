@@ -135,6 +135,10 @@ enum Commands {
         /// Low battery notification threshold percentage (default: 20)
         #[arg(short, long, default_value_t = 20)]
         threshold: u8,
+
+        /// Send a test notification to verify desktop popups
+        #[arg(long)]
+        test_notify: bool,
     },
 
     /// Manage DPI settings and active stage (e.g. lorgarctl dpi 1 or lorgarctl dpi 1 1400)
@@ -337,16 +341,20 @@ fn open_device(cli_device: Option<&str>, debug: bool) -> Result<Msa10w> {
 }
 
 fn send_desktop_notification(title: &str, body: &str, critical: bool) {
-    let mut cmd = std::process::Command::new("notify-send");
-    cmd.arg("-a").arg("lorgarctl");
-    cmd.arg("-i").arg("input-mouse");
-    if critical {
-        cmd.arg("-u").arg("critical");
-    } else {
-        cmd.arg("-u").arg("normal");
-    }
-    cmd.arg(title).arg(body);
-    let _ = cmd.status();
+    lorgar_core::notify::send_desktop_notification(
+        title,
+        body,
+        if critical {
+            lorgar_core::notify::Urgency::Critical
+        } else {
+            lorgar_core::notify::Urgency::Normal
+        },
+        Some(if critical {
+            "battery-caution"
+        } else {
+            "battery-low"
+        }),
+    );
 }
 
 #[cfg(feature = "tray")]

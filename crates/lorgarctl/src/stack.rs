@@ -662,11 +662,22 @@ fn status(cli: &Cli, battery_only: bool) -> Result<()> {
             short,
             notify,
             threshold,
+            test_notify,
         } = &cli.command
         {
+            if *test_notify {
+                crate::send_desktop_notification(
+                    "LORGAR MSA10W: Low Battery (Test)",
+                    &format!("Test notification: current battery is {percentage}%."),
+                    percentage <= 10,
+                );
+                if !cli.json {
+                    println!("{}", "✓ Sent test battery notification to desktop.".green());
+                }
+            }
             if *notify && percentage <= *threshold {
                 crate::send_desktop_notification(
-                    "LORGAR battery low",
+                    "LORGAR MSA10W: Low Battery",
                     &format!("Battery: {percentage}%"),
                     percentage <= 10,
                 );
@@ -1074,7 +1085,8 @@ fn run_menu(cli: &Cli) -> Result<()> {
         writeln!(out, "  [5] Change RGB Lighting Mode")?;
         writeln!(out, "  [6] Set RGB Static Color")?;
         writeln!(out, "  [7] Power-Saving & Sleep (Hibernation) Info")?;
-        writeln!(out, "  [8] Refresh status")?;
+        writeln!(out, "  [8] Test Low-Battery Notification")?;
+        writeln!(out, "  [9] Refresh status")?;
         writeln!(out, "  [0] Exit")?;
         writeln!(
             out,
@@ -1235,7 +1247,21 @@ fn run_menu(cli: &Cli) -> Result<()> {
                 println!("  • Tip: Set RGB to 'off' or Polling to 500 Hz to extend battery life up to 100+ hours.");
                 pause_prompt();
             }
-            "8" => {}
+            "8" => {
+                println!("\nSending test battery notification to desktop...");
+                let p = battery.unwrap_or(15);
+                lorgar_core::notify::send_desktop_notification(
+                    "LORGAR MSA10W: Low Battery (Test)",
+                    &format!(
+                        "Test notification: battery is at {p}%. Consider plugging in charger soon."
+                    ),
+                    lorgar_core::notify::Urgency::Normal,
+                    Some("battery-low"),
+                );
+                println!("{}", "✓ Sent desktop notification (battery-low)!".green());
+                pause_prompt();
+            }
+            "9" => {}
             _ => {
                 println!("{}", "Unknown option".yellow());
                 std::thread::sleep(std::time::Duration::from_millis(500));
