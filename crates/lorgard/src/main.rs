@@ -74,6 +74,7 @@ struct Daemon {
     log: EventLog,
     config: Config,
     config_path: PathBuf,
+    last_config_modified: Option<std::time::SystemTime>,
     backend: Box<dyn ForegroundBackend>,
     last_selection: Option<String>,
     last_warning: Option<String>,
@@ -115,6 +116,14 @@ impl Daemon {
     }
 
     fn reload(&mut self) -> Result<()> {
+        if let Ok(meta) = std::fs::metadata(&self.config_path) {
+            if let Ok(modified) = meta.modified() {
+                if self.last_config_modified == Some(modified) {
+                    return Ok(());
+                }
+                self.last_config_modified = Some(modified);
+            }
+        }
         let next = profiles::load(&self.config_path)?;
         next.validate()?;
         if next.profiles != self.config.profiles || next.applications != self.config.applications {
@@ -237,11 +246,15 @@ fn run(args: Args) -> Result<()> {
     if backend.name() == "disabled" {
         eprintln!("lorgard: application switching disabled; native KDE/GNOME Wayland foreground detection is not implemented");
     }
+    let last_config_modified = std::fs::metadata(&config_path)
+        .ok()
+        .and_then(|m| m.modified().ok());
     let mut daemon = Daemon {
         monitor: Monitor::new(HidProvider { path: args.device }, Some(30000)),
         log: EventLog::new(2048),
         config,
         config_path,
+        last_config_modified,
         backend,
         last_selection: None,
         last_warning: None,

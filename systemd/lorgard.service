@@ -9,6 +9,14 @@ RestartSec=3
 UMask=0077
 NoNewPrivileges=true
 TimeoutStopSec=5
+LockPersonality=true
+ProtectSystem=strict
+ProtectHome=read-only
+RuntimeDirectory=lorgar
+ConfigurationDirectory=lorgar
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
 
 [Install]
 WantedBy=default.target
