@@ -20,7 +20,7 @@ struct Args {
     device: Option<String>,
     #[arg(long)]
     config: Option<PathBuf>,
-    #[arg(long, default_value = "auto", value_parser = ["auto", "none", "x11"])]
+    #[arg(long, default_value = "auto", value_parser = ["auto", "none", "x11", "kwin"])]
     foreground: String,
     #[arg(long)]
     restore_last_profile: bool,
@@ -244,7 +244,7 @@ fn run(args: Args) -> Result<()> {
         backend.name()
     );
     if backend.name() == "disabled" {
-        eprintln!("lorgard: application switching disabled; native KDE/GNOME Wayland foreground detection is not implemented");
+        eprintln!("lorgard: application switching disabled; no supported window manager detected (supports X11 and KDE Wayland)");
     }
     let last_config_modified = std::fs::metadata(&config_path)
         .ok()

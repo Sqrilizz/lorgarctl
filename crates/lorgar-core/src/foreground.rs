@@ -131,28 +131,149 @@ impl ForegroundBackend for X11 {
     }
 }
 
+pub struct KWinWayland;
+
+fn query_kwin_window_info() -> Result<Option<String>> {
+    let mut child = match Command::new("busctl")
+        .args([
+            "--user",
+            "--json=short",
+            "call",
+            "org.kde.KWin",
+            "/KWin",
+            "org.kde.KWin",
+            "queryWindowInfo",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => return Ok(None),
+    };
+
+    let deadline = Instant::now() + Duration::from_millis(250);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    return Ok(None);
+                }
+                break;
+            }
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(5)),
+            result => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(result
+                    .err()
+                    .map(LorgarError::Io)
+                    .unwrap_or(LorgarError::Timeout));
+            }
+        }
+    }
+
+    let mut output = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        stdout.read_to_string(&mut output)?;
+    }
+    Ok(Some(output))
+}
+
+pub fn parse_kwin_json(json_str: &str) -> Option<ActiveApplication> {
+    let val: serde_json::Value = serde_json::from_str(json_str).ok()?;
+    let first = val.get("data")?.as_array()?.first()?;
+
+    if let Some(pid_val) = first
+        .get("pid")
+        .and_then(|p| p.get("data"))
+        .and_then(|d| d.as_i64())
+    {
+        let pid = pid_val as u32;
+        if pid > 0 {
+            if let Ok(process) = process_name(pid) {
+                return Some(ActiveApplication { pid, process });
+            }
+        }
+    }
+
+    if let Some(desktop) = first
+        .get("desktopFile")
+        .and_then(|p| p.get("data"))
+        .and_then(|d| d.as_str())
+    {
+        if !desktop.is_empty() {
+            return Some(ActiveApplication {
+                pid: 0,
+                process: desktop.to_string(),
+            });
+        }
+    }
+
+    if let Some(res) = first
+        .get("resourceClass")
+        .and_then(|p| p.get("data"))
+        .and_then(|d| d.as_str())
+    {
+        if !res.is_empty() {
+            return Some(ActiveApplication {
+                pid: 0,
+                process: res.to_string(),
+            });
+        }
+    }
+
+    None
+}
+
+impl ForegroundBackend for KWinWayland {
+    fn active_application(&mut self) -> Result<Option<ActiveApplication>> {
+        match query_kwin_window_info() {
+            Ok(Some(raw)) => Ok(parse_kwin_json(&raw)),
+            _ => Ok(None),
+        }
+    }
+    fn name(&self) -> &'static str {
+        "kwin-wayland"
+    }
+}
+
+fn is_kwin_session() -> bool {
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
+    let session_desktop = std::env::var("XDG_SESSION_DESKTOP").unwrap_or_default();
+    desktop.to_ascii_lowercase().contains("kde")
+        || session_desktop.to_ascii_lowercase().contains("kde")
+}
+
 pub fn backend(name: &str) -> Result<Box<dyn ForegroundBackend>> {
     match name {
-        "none" => Ok(Box::new(Disabled)),
+        "none" | "disabled" => Ok(Box::new(Disabled)),
         "x11" => {
             if std::env::var_os("WAYLAND_DISPLAY").is_some()
                 || std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland")
             {
                 return Err(LorgarError::Config(
-                    "native Wayland focus detection is unavailable; use --foreground none".into(),
+                    "X11 foreground detection is disabled on Wayland; XWayland cannot see native windows".into(),
                 ));
             }
             Ok(Box::new(X11))
         }
-        "auto"
-            if std::env::var_os("WAYLAND_DISPLAY").is_none()
-                && std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("x11") =>
-        {
-            Ok(Box::new(X11))
+        "kwin" => Ok(Box::new(KWinWayland)),
+        "auto" => {
+            if std::env::var_os("WAYLAND_DISPLAY").is_some()
+                || std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland")
+            {
+                if is_kwin_session() {
+                    Ok(Box::new(KWinWayland))
+                } else {
+                    Ok(Box::new(Disabled))
+                }
+            } else {
+                Ok(Box::new(X11))
+            }
         }
-        "auto" => Ok(Box::new(Disabled)),
         _ => Err(LorgarError::Config(
-            "foreground backend must be auto, none or x11".into(),
+            "foreground backend must be auto, none, x11 or kwin".into(),
         )),
     }
 }
@@ -160,6 +281,7 @@ pub fn backend(name: &str) -> Result<Box<dyn ForegroundBackend>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn x11_window_parsing() {
         assert_eq!(
@@ -171,5 +293,16 @@ mod tests {
             None
         );
         assert!(parse_window("_NET_ACTIVE_WINDOW: not found").is_err());
+    }
+
+    #[test]
+    fn kwin_json_parsing_fallback() {
+        let json = r#"{"type":"a{sv}","data":[{"desktopFile":{"type":"s","data":"discord"},"pid":{"type":"i","data":0},"resourceClass":{"type":"s","data":"discord"}}]}"#;
+        let app = parse_kwin_json(json).unwrap();
+        assert_eq!(app.process, "discord");
+        assert_eq!(app.pid, 0);
+
+        let empty = r#"{"type":"a{sv}","data":[]}"#;
+        assert_eq!(parse_kwin_json(empty), None);
     }
 }
