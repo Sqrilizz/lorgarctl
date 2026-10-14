@@ -32,10 +32,12 @@ Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wi
 
 [![progress map](assets/status.png)](protocol/msa10w.md)
 
-<sub>* Firmware NVRAM: percentage of configuration packets and hardware registers reverse-engineered from vendor software (<code>mouse.MSA10WR.dll</code>) and verified live on hardware. 100% native Linux driver and control stack.</sub>
+<sub>* Firmware, Hardware & Protocol: percentage of hardware registers, NVRAM packets, bootloader commands, and firmware container specifications reverse-engineered from vendor binaries (<code>mouse.MSA10WR.dll</code>, <code>HIDUsb.dll</code>, Togran TM271 OEM codebase) and validated on hardware. 100% native open-source Linux stack.</sub>
 
 | Subsystem | Coverage | Documentation / Reference | Implementation |
 | :--- | :---: | :--- | :--- |
+| **OEM Hardware & Platform Architecture** | **100.0%** | [`#1-oem-hardware-platform`](#1-oem-hardware-platform--real-origin) · [`protocol/msa10w.md`](protocol/msa10w.md#8-firmware-architecture-container-format--flashing-protocols-reverse-engineered-via-rea) | Togran TM271/TM238 · PixArt PAW3395 · Holtek HT68FB571 |
+| **Dual-Channel HID Protocol Architecture** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#hid-reports--commands) | EP0 Feature (runtime) vs EP04 Interrupt OUT (NVRAM/ROM) |
 | **Firmware NVRAM (Packets 0x01–0x09)** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#complete-firmware-nvram-packet-map) | [`lorgar-core::protocol`](crates/lorgar-core/src/protocol.rs) |
 | **HID Transport & Device Lock** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#hid-reports--commands) | [`lorgar-core::device`](crates/lorgar-core/src/device.rs) |
 | **Battery & Sleep Power States** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#sleep-timer--inactivity-timeout) | CLI `lorgarctl sleep`, daemon & kernel |
@@ -43,7 +45,9 @@ Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wi
 | **RGB Effects & Palette** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#packet-0x03---dpi-led-indicator-colors) | Modes (Static, Breathing, Wave, Cycle), hex RGB |
 | **Linux Kernel Module (`hid-lorgar`)** | **100.0%** | [`kernel/`](kernel) | `/sys/class/power_supply`, sysfs controls, DKMS |
 | **Daemon & CLI Management Stack** | **100.0%** | [`crates/`](crates) | `lorgarctl` (CLI/TUI menu), `lorgard` (IPC daemon) |
-| **Firmware Container, Bootloader & Flashing** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#8-firmware-architecture-container-format--flashing-protocols-reverse-engineered-via-rea) | [`lorgar-core::firmware`](crates/lorgar-core/src/firmware.rs), `lorgarctl firmware` |
+| **Firmware Container & Checksum Engine** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#82-firmware-file-container-format) | [`lorgar-core::firmware`](crates/lorgar-core/src/firmware.rs), `lorgarctl firmware` |
+| **Bootloader & Flash Memory Protocol** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#83-low-level-bootloader--flash-protocol) | `0x08 0x08` (ReadFlash), `0x08 0x0d` (BootMode), `0xC0/C1` (Write) |
+| **Live ROM Dumping & Custom Flash Engine** | **In Progress** | [`protocol/msa10w.md`](protocol/msa10w.md#84-custom-firmware--dump-feasibility-analysis) | Active wired pipeline (`093a:c600`), EP04 interrupt calibration |
 
 > **Coverage vs. live validation:** percentages above measure reverse-engineered
 > firmware packets/registers, not end-to-end live proof. Kernel query-transport
