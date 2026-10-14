@@ -24,9 +24,18 @@ struct Cli {
         global = true,
         long,
         conflicts_with = "device",
+        conflicts_with = "direct",
         help = "Use lorgard instead of opening HID directly"
     )]
     daemon: bool,
+
+    #[arg(
+        global = true,
+        long,
+        conflicts_with = "daemon",
+        help = "Force direct HID access, bypassing running lorgard daemon"
+    )]
+    direct: bool,
 
     #[arg(
         global = true,
@@ -220,6 +229,9 @@ fn parse_lighting_mode(s: &str) -> std::result::Result<LightingMode, String> {
 
 #[derive(Subcommand, Debug)]
 enum DpiCommands {
+    /// Show all DPI stages and active stage
+    List,
+
     /// Set DPI value for a specific stage (stage: 0..7, dpi: 100..12000)
     Set {
         /// DPI stage index (0..7)
@@ -240,6 +252,12 @@ enum DpiCommands {
         stage: u8,
         /// Hex color string (e.g. #ff0000, 32cd32)
         hex: String,
+    },
+
+    /// Apply standard DPI preset (fps, balanced, high)
+    Preset {
+        /// Preset name: fps (400/800/1600/3200) | balanced (800/1200/1600/2400) | high (1600/2400/3200/6400)
+        name: String,
     },
 }
 

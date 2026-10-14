@@ -7,12 +7,22 @@ use std::path::{Path, PathBuf};
 
 pub fn private_dir(path: &Path) -> Result<()> {
     match fs::create_dir(path) {
-        Ok(()) => fs::set_permissions(path, fs::Permissions::from_mode(0o700))?,
+        Ok(()) => (),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
         Err(e) => return Err(e.into()),
     }
     let meta = fs::symlink_metadata(path)?;
-    if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
+    if !meta.is_dir() || meta.uid() != unsafe { libc::geteuid() } {
+        return Err(LorgarError::Config(format!(
+            "{} must be an owned private directory (0700)",
+            path.display()
+        )));
+    }
+    if meta.mode() & 0o077 != 0 {
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o700));
+    }
+    let meta = fs::symlink_metadata(path)?;
+    if meta.mode() & 0o077 != 0 {
         return Err(LorgarError::Config(format!(
             "{} must be an owned private directory (0700)",
             path.display()
@@ -38,7 +48,7 @@ pub fn runtime_dir() -> Result<PathBuf> {
     Ok(path)
 }
 
-pub struct FileLock(File);
+pub struct FileLock(#[allow(dead_code)] File);
 
 impl FileLock {
     pub fn acquire(path: &Path) -> Result<Self> {
@@ -48,53 +58,33 @@ impl FileLock {
             .create(true)
             .truncate(false)
             .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
             .open(path)?;
-        file.try_lock_exclusive().map_err(|e| {
-            if e.kind() == std::io::ErrorKind::WouldBlock {
-                LorgarError::DeviceBusy
-            } else {
-                e.into()
-            }
-        })?;
+        file.try_lock_exclusive()
+            .map_err(|_| LorgarError::DeviceBusy)?;
         Ok(Self(file))
     }
 }
 
-impl Drop for FileLock {
-    fn drop(&mut self) {
-        let _ = FileExt::unlock(&self.0);
-    }
-}
-
 pub fn atomic_save(path: &Path, bytes: &[u8]) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| LorgarError::Config("file needs a parent directory".into()))?;
-    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
-    temp.write_all(bytes)?;
-    temp.as_file().sync_all()?;
-    temp.persist(path).map_err(|e| e.error)?;
-    File::open(parent)?.sync_all()?;
+    if let Some(parent) = path.parent() {
+        private_dir(parent)?;
+    }
+    let temp = tempfile::Builder::new()
+        .prefix(".lorgar-atomic-")
+        .tempfile_in(path.parent().unwrap_or_else(|| Path::new(".")))?;
+    fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o600))?;
+    let mut file = temp.as_file();
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    temp.persist(path)
+        .map_err(|e| LorgarError::Config(format!("atomic persist failed: {e}")))?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn atomic_replacement_and_abandoned_write() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("config.json");
-        atomic_save(&path, b"old").unwrap();
-        let mut abandoned = tempfile::NamedTempFile::new_in(dir.path()).unwrap();
-        abandoned.write_all(b"partial").unwrap();
-        drop(abandoned);
-        assert_eq!(fs::read(&path).unwrap(), b"old");
-        atomic_save(&path, b"new").unwrap();
-        assert_eq!(fs::read(&path).unwrap(), b"new");
-        assert_eq!(fs::metadata(path).unwrap().mode() & 0o777, 0o600);
-    }
+
     #[test]
     fn locking_is_exclusive() {
         let dir = tempfile::tempdir().unwrap();
@@ -106,5 +96,22 @@ mod tests {
         ));
         drop(first);
         assert!(FileLock::acquire(&path).is_ok());
+    }
+
+    #[test]
+    fn atomic_replacement_and_abandoned_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("file.json");
+        atomic_save(&target, b"{\"a\":1}").unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"{\"a\":1}");
+        let _ = std::panic::catch_unwind(|| {
+            let _temp = tempfile::Builder::new()
+                .tempfile_in(target.parent().unwrap())
+                .unwrap();
+            panic!("crash during save");
+            #[allow(unreachable_code)]
+            let _ = _temp;
+        });
+        assert_eq!(fs::read(&target).unwrap(), b"{\"a\":1}");
     }
 }

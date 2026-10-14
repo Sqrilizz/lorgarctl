@@ -1,5 +1,6 @@
 use crate::{Cli, Commands, DpiCommands, PollingSubcommands, RgbCommands};
 use clap::{CommandFactory, Subcommand};
+use colored::*;
 use lorgar_core::capture::{self, CaptureWriter, Header};
 use lorgar_core::ipc::{self, Action};
 use lorgar_core::monitor::{self, Event, HidProvider, Monitor, TimedEvent};
@@ -53,6 +54,262 @@ fn output(value: &impl serde::Serialize, as_json: bool) -> Result<()> {
     Ok(())
 }
 
+pub fn is_daemon_mode(cli: &Cli) -> bool {
+    if cli.daemon {
+        return true;
+    }
+    if cli.direct || cli.device.is_some() {
+        return false;
+    }
+    let socket = cli.socket.clone().map(Ok).unwrap_or_else(ipc::socket_path);
+    if let Ok(path) = socket {
+        if path.exists() {
+            if let Ok(mut stream) = std::os::unix::net::UnixStream::connect(&path) {
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_millis(150)))
+                    .ok();
+                stream
+                    .set_write_timeout(Some(std::time::Duration::from_millis(150)))
+                    .ok();
+                if ipc::write_frame(
+                    &mut stream,
+                    &ipc::Request {
+                        version: ipc::VERSION,
+                        action: ipc::Action::Status,
+                    },
+                )
+                .is_ok()
+                {
+                    if let Ok(resp) = ipc::read_frame::<ipc::Response>(&mut stream) {
+                        return resp.ok;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn battery_bar(percentage: u8) -> String {
+    let total_bars = 20;
+    let filled = ((percentage as usize * total_bars) + 50) / 100;
+    let filled = filled.min(total_bars);
+    let empty = total_bars - filled;
+    let bar_str: String = "█".repeat(filled) + &"░".repeat(empty);
+    if percentage > 50 {
+        bar_str.green().to_string()
+    } else if percentage > 20 {
+        bar_str.yellow().to_string()
+    } else {
+        bar_str.red().bold().to_string()
+    }
+}
+
+fn get_active_stage(cli: &Cli) -> Option<u8> {
+    if is_daemon_mode(cli) {
+        response(cli, Action::Status)
+            .ok()
+            .and_then(|r| r.state)
+            .and_then(|s| s.active_stage)
+    } else {
+        crate::open_device(cli.device.as_deref(), false)
+            .and_then(|dev| dev.query_device_state())
+            .ok()
+            .and_then(|raw| lorgar_core::protocol::parse_active_dpi_stage(&raw).ok())
+    }
+}
+
+fn show_dpi_list(cli: &Cli) -> Result<()> {
+    let active_stage = get_active_stage(cli);
+    let stages = [
+        (0u8, 800u16, "#32cd32", "Lime"),
+        (1, 1200, "#9900ff", "Purple"),
+        (2, 1600, "#1e90ff", "Blue"),
+        (3, 2400, "#ff7f27", "Orange"),
+        (4, 3200, "#dc143c", "Crimson"),
+        (5, 6400, "#fff300", "Yellow"),
+        (6, 12000, "#fb569d", "Pink"),
+        (7, 16000, "#4c1130", "Dark Magenta"),
+    ];
+
+    if cli.json {
+        let items: Vec<_> = stages
+            .iter()
+            .map(|(idx, dpi, hex, name)| {
+                json!({
+                    "stage": idx,
+                    "default_dpi": dpi,
+                    "color": hex,
+                    "color_name": name,
+                    "active": active_stage == Some(*idx),
+                })
+            })
+            .collect();
+        return output(
+            &json!({
+                "ok": true,
+                "active_stage": active_stage,
+                "stages": items,
+            }),
+            cli.json,
+        );
+    }
+
+    let mut out = std::io::stdout().lock();
+    writeln!(
+        out,
+        "{} {}",
+        "LORGAR MSA10W DPI Stages".bold().white(),
+        "(PixArt PAW3395 100-26000 DPI)".dimmed()
+    )?;
+
+    for (idx, dpi, hex, name) in &stages {
+        let is_active = active_stage == Some(*idx);
+        let marker = if is_active {
+            " ◄ active".green().bold()
+        } else {
+            "".normal()
+        };
+        let stage_str = format!("[{idx}]");
+        writeln!(
+            out,
+            "  {} {:>5} DPI   {:<9} ({}){}",
+            if is_active {
+                stage_str.green().bold()
+            } else {
+                stage_str.cyan()
+            },
+            dpi.to_string().yellow().bold(),
+            hex.dimmed(),
+            name,
+            marker
+        )?;
+    }
+
+    writeln!(out)?;
+    writeln!(out, "{}", "Quick usage:".dimmed())?;
+    writeln!(
+        out,
+        "  lorgarctl dpi <stage>             Switch stage (0..7)"
+    )?;
+    writeln!(
+        out,
+        "  lorgarctl dpi <stage> <dpi>       Set DPI (e.g. lorgarctl dpi 1 1600)"
+    )?;
+    writeln!(
+        out,
+        "  lorgarctl dpi color <stage> <hex> Set indicator LED color"
+    )?;
+    writeln!(
+        out,
+        "  lorgarctl dpi preset fps          Apply FPS gaming preset (400/800/1600/3200)"
+    )?;
+    Ok(())
+}
+
+fn apply_dpi_preset(cli: &Cli, name: &str) -> Result<()> {
+    let (stages, active): (Vec<(u8, u16)>, u8) = match name.to_ascii_lowercase().as_str() {
+        "fps" | "cs" | "shooter" => (vec![(0, 400), (1, 800), (2, 1600), (3, 3200)], 1),
+        "balanced" | "standard" | "default" => (vec![(0, 800), (1, 1200), (2, 1600), (3, 2400)], 1),
+        "high" | "speed" | "fast" => (vec![(0, 1600), (1, 2400), (2, 3200), (3, 6400)], 2),
+        _ => {
+            return Err(LorgarError::Config(format!(
+                "unknown preset '{name}'. Supported presets: fps, balanced, high"
+            )))
+        }
+    };
+
+    for (stage, dpi) in &stages {
+        execute(
+            cli,
+            Command::SetDpi {
+                stage: *stage,
+                dpi: *dpi,
+            },
+        )?;
+    }
+    execute(cli, Command::SetActiveStage { stage: active })?;
+
+    if !cli.json {
+        let stages_str = stages
+            .iter()
+            .map(|(s, d)| {
+                if *s == active {
+                    format!("{s}: {d} DPI (active)")
+                } else {
+                    format!("{s}: {d} DPI")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(
+            std::io::stdout().lock(),
+            "{}",
+            format!("Applied DPI preset '{name}': [{stages_str}]")
+                .green()
+                .bold()
+        )?;
+        return Ok(());
+    }
+
+    output(
+        &json!({
+            "ok": true,
+            "preset": name,
+            "active_stage": active,
+            "stages": stages.iter().map(|(s, d)| json!({"stage": s, "dpi": d})).collect::<Vec<_>>(),
+        }),
+        cli.json,
+    )
+}
+
+fn show_polling_help(cli: &Cli) -> Result<()> {
+    if cli.json {
+        return output(
+            &json!({"supported_rates_hz": [125, 250, 500, 1000]}),
+            cli.json,
+        );
+    }
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "{}", "LORGAR MSA10W USB Polling Rate".bold().white())?;
+    writeln!(out, "  Supported: 125 Hz, 250 Hz, 500 Hz, 1000 Hz")?;
+    writeln!(out)?;
+    writeln!(out, "{}", "Usage:".dimmed())?;
+    writeln!(
+        out,
+        "  lorgarctl polling <hz>            Set rate (e.g. lorgarctl polling 1000)"
+    )?;
+    Ok(())
+}
+
+fn show_rgb_help(cli: &Cli) -> Result<()> {
+    if cli.json {
+        return output(
+            &json!({
+                "supported_modes": ["off", "static", "breathing", "color-cycle", "tapping", "wave"]
+            }),
+            cli.json,
+        );
+    }
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "{}", "LORGAR MSA10W RGB Lighting".bold().white())?;
+    writeln!(
+        out,
+        "  Supported modes: off, static, breathing, color-cycle, tapping, wave"
+    )?;
+    writeln!(out)?;
+    writeln!(out, "{}", "Usage:".dimmed())?;
+    writeln!(
+        out,
+        "  lorgarctl rgb <mode>              Set lighting mode (e.g. lorgarctl rgb wave)"
+    )?;
+    writeln!(
+        out,
+        "  lorgarctl rgb <#RRGGBB>           Set static color (e.g. lorgarctl rgb #ff5500)"
+    )?;
+    Ok(())
+}
+
 fn response(cli: &Cli, action: Action) -> Result<ipc::Response> {
     let path = cli
         .socket
@@ -74,16 +331,36 @@ fn response(cli: &Cli, action: Action) -> Result<ipc::Response> {
 fn execute(cli: &Cli, command: Command) -> Result<()> {
     let packet = command.packet()?;
     let description = format!("{command:?}");
-    if cli.daemon {
-        response(cli, Action::Execute { command })?;
+    if is_daemon_mode(cli) {
+        response(
+            cli,
+            Action::Execute {
+                command: command.clone(),
+            },
+        )?;
     } else {
         crate::open_device(cli.device.as_deref(), false)?.execute(&command)?;
     }
     if !cli.json {
-        writeln!(
-            std::io::stdout().lock(),
-            "Applied {description} (sent; readback not verified)"
-        )?;
+        let msg = match &command {
+            Command::SetActiveStage { stage } => format!("Activated DPI stage {stage}"),
+            Command::SetDpi { stage, dpi } => format!("Set DPI stage {stage} to {dpi} DPI"),
+            Command::SetStageColor {
+                stage,
+                red,
+                green,
+                blue,
+            } => {
+                format!("Set DPI stage {stage} color to #{red:02x}{green:02x}{blue:02x}")
+            }
+            Command::SetPolling { rate } => format!("Set polling rate to {} Hz", rate.hz()),
+            Command::SetLightingMode { mode } => format!("Set lighting mode to {mode:?}"),
+            Command::SetLightingColor { red, green, blue } => {
+                format!("Set lighting color to #{red:02x}{green:02x}{blue:02x}")
+            }
+            _ => format!("Applied {description} (sent; readback not verified)"),
+        };
+        writeln!(std::io::stdout().lock(), "{}", msg.green().bold())?;
         if cli.debug {
             writeln!(
                 std::io::stdout().lock(),
@@ -113,7 +390,7 @@ fn profile(cli: &Cli, sub: &ProfileCommand) -> Result<()> {
         ),
         ProfileCommand::Show { name } => output(profiles::load(&path)?.profile(name)?, cli.json),
         ProfileCommand::Apply { name } => {
-            if cli.daemon {
+            if is_daemon_mode(cli) {
                 response(cli, Action::ApplyProfile { name: name.clone() })?;
             } else {
                 let config = profiles::load(&path)?;
@@ -259,7 +536,7 @@ fn watch(cli: &Cli, capture: Option<(&Path, u64, bool, &str, u64)>) -> Result<()
                 created_ms: monitor::timestamp_ms(),
                 source: format!(
                     "{}; {label}",
-                    if cli.daemon {
+                    if is_daemon_mode(cli) {
                         "lorgard event stream"
                     } else {
                         "direct HID client; only own feature output is observed"
@@ -282,7 +559,7 @@ fn watch(cli: &Cli, capture: Option<(&Path, u64, bool, &str, u64)>) -> Result<()
                 .unwrap_or(30000),
         ),
     );
-    let mut cursor = if cli.daemon {
+    let mut cursor = if is_daemon_mode(cli) {
         response(cli, Action::Events { after: u64::MAX })?.cursor
     } else {
         0
@@ -291,7 +568,7 @@ fn watch(cli: &Cli, capture: Option<(&Path, u64, bool, &str, u64)>) -> Result<()
     while !stopped.load(Ordering::Relaxed)
         && (duration == 0 || start.elapsed().as_secs() < duration)
     {
-        if cli.daemon
+        if is_daemon_mode(cli)
             && capture.is_some_and(|(_, _, query, _, _)| query)
             && start.elapsed().as_millis() as u64 >= next_daemon_query_ms
         {
@@ -306,7 +583,7 @@ fn watch(cli: &Cli, capture: Option<(&Path, u64, bool, &str, u64)>) -> Result<()
                     .map(|(_, _, _, _, interval)| interval)
                     .unwrap_or(30000);
         }
-        let events = if cli.daemon {
+        let events = if is_daemon_mode(cli) {
             let response = response(cli, Action::Events { after: cursor })?;
             cursor = response.cursor;
             if response.gap {
@@ -341,7 +618,8 @@ fn watch(cli: &Cli, capture: Option<(&Path, u64, bool, &str, u64)>) -> Result<()
 }
 
 fn status(cli: &Cli, battery_only: bool) -> Result<()> {
-    let (info, battery, stage, observed, raw, error, applied_profile) = if cli.daemon {
+    let daemon_mode = is_daemon_mode(cli);
+    let (info, battery, stage, observed, raw, error, applied_profile) = if daemon_mode {
         let state = response(cli, Action::Status)?
             .state
             .ok_or_else(|| LorgarError::Transport("daemon omitted state".into()))?;
@@ -399,9 +677,19 @@ fn status(cli: &Cli, battery_only: bool) -> Result<()> {
             }
         }
         if !cli.json {
+            let health = if percentage > 50 {
+                "good".green()
+            } else if percentage > 20 {
+                "moderate".yellow()
+            } else {
+                "low (charge soon)".red().bold()
+            };
             writeln!(
                 std::io::stdout().lock(),
-                "Battery: {percentage}% (charging status unknown)"
+                "Battery: {:>3}% [{}] ({})",
+                percentage,
+                battery_bar(percentage),
+                health
             )?;
             return Ok(());
         }
@@ -414,51 +702,113 @@ fn status(cli: &Cli, battery_only: bool) -> Result<()> {
     } else {
         if !cli.json {
             let mut out = std::io::stdout().lock();
-            writeln!(out, "LORGAR MSA10W")?;
+            let mode_tag = if daemon_mode {
+                "[daemon]".cyan()
+            } else {
+                "[direct]".purple()
+            };
+
             if let Some(info) = &info {
                 writeln!(
                     out,
-                    "Device: {} ({:04x}:{:04x})",
-                    info.path, info.vendor_id, info.product_id
+                    "{} {} {}",
+                    "LORGAR MSA10W".bold().white(),
+                    "● Connected".green().bold(),
+                    mode_tag
+                )?;
+                let conn_type = if info.product_id == 0xc601 {
+                    "2.4 GHz Wireless"
+                } else {
+                    "USB Wired"
+                };
+                writeln!(
+                    out,
+                    "  {:<14} {} ({})",
+                    "Device:".dimmed(),
+                    info.path.cyan(),
+                    conn_type
                 )?;
             } else {
-                writeln!(out, "Device: disconnected")?;
+                writeln!(
+                    out,
+                    "{} {} {}",
+                    "LORGAR MSA10W".bold().white(),
+                    "○ Disconnected".red().bold(),
+                    mode_tag
+                )?;
             }
-            writeln!(
-                out,
-                "Battery: {}",
-                battery
-                    .map(|p| format!("{p}%"))
-                    .unwrap_or_else(|| "unknown".into())
-            )?;
-            writeln!(
-                out,
-                "Active DPI stage: {}",
-                stage
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "unknown".into())
-            )?;
-            writeln!(
-                out,
-                "Last applied profile: {}",
-                applied_profile.as_deref().unwrap_or("none")
-            )?;
+
+            if let Some(p) = battery {
+                let bar = battery_bar(p);
+                let health = if p > 50 {
+                    "good".green()
+                } else if p > 20 {
+                    "moderate".yellow()
+                } else {
+                    "low (charge soon)".red().bold()
+                };
+                writeln!(
+                    out,
+                    "  {:<14} [{}] {:>3}% ({})",
+                    "Battery:".dimmed(),
+                    bar,
+                    p,
+                    health
+                )?;
+            } else {
+                writeln!(out, "  {:<14} unknown", "Battery:".dimmed())?;
+            }
+
+            if let Some(s) = stage {
+                let colors = [
+                    "#32cd32 (Lime)",
+                    "#9900ff (Purple)",
+                    "#1e90ff (Blue)",
+                    "#ff7f27 (Orange)",
+                    "#dc143c (Crimson)",
+                    "#fff300 (Yellow)",
+                    "#fb569d (Pink)",
+                    "#4c1130 (Dark Magenta)",
+                ];
+                let color_tag = colors.get(s as usize).unwrap_or(&"");
+                writeln!(
+                    out,
+                    "  {:<14} Stage {} {}",
+                    "DPI Stage:".dimmed(),
+                    s.to_string().bold().cyan(),
+                    color_tag.dimmed()
+                )?;
+            } else {
+                writeln!(out, "  {:<14} unknown", "DPI Stage:".dimmed())?;
+            }
+
             let lighting_readback = raw.as_ref().and_then(|r| {
                 lorgar_core::protocol::parse_lighting_mode_readback(r)
                     .ok()
                     .flatten()
             });
             if let Some(mode) = lighting_readback {
-                writeln!(out, "Active lighting mode: {:?}", mode)?;
-            } else {
-                writeln!(out, "Charging, polling and lighting readback: unknown")?;
+                writeln!(out, "  {:<14} {:?}", "Lighting:".dimmed(), mode)?;
             }
+
+            writeln!(
+                out,
+                "  {:<14} {}",
+                "Profile:".dimmed(),
+                applied_profile.as_deref().unwrap_or("none")
+            )?;
+
             if let Some(error) = &error {
-                writeln!(out, "Last error: {error}")?;
+                writeln!(out, "  {:<14} {}", "Notice:".yellow(), error)?;
             }
             if cli.debug {
                 if let Some(raw) = &raw {
-                    writeln!(out, "Raw: {}", crate::format_hex_bytes(raw))?;
+                    writeln!(
+                        out,
+                        "  {:<14} {}",
+                        "Raw:".dimmed(),
+                        crate::format_hex_bytes(raw)
+                    )?;
                 }
             }
             return Ok(());
@@ -508,7 +858,7 @@ fn doctor(cli: &Cli) -> Result<()> {
 fn control(cli: &Cli) -> Result<()> {
     match &cli.command {
         Commands::Devices => {
-            let devices = if cli.daemon {
+            let devices = if is_daemon_mode(cli) {
                 response(cli, Action::Devices)?.devices
             } else {
                 lorgar_core::Msa10w::list_devices()?
@@ -518,6 +868,14 @@ fn control(cli: &Cli) -> Result<()> {
         Commands::Status => status(cli, false),
         Commands::Battery { .. } => status(cli, true),
         Commands::Dpi { sub, stage, dpi } => {
+            if matches!(sub, Some(DpiCommands::List))
+                || (sub.is_none() && stage.is_none() && dpi.is_none())
+            {
+                return show_dpi_list(cli);
+            }
+            if let Some(DpiCommands::Preset { name }) = sub {
+                return apply_dpi_preset(cli, name);
+            }
             let command = match sub {
                 Some(DpiCommands::Set { stage, dpi }) => Command::SetDpi {
                     stage: *stage,
@@ -533,6 +891,7 @@ fn control(cli: &Cli) -> Result<()> {
                         blue,
                     }
                 }
+                Some(DpiCommands::List) | Some(DpiCommands::Preset { .. }) => unreachable!(),
                 None => {
                     match (stage, dpi) {
                         (Some(stage), Some(dpi)) => Command::SetDpi {
@@ -550,6 +909,9 @@ fn control(cli: &Cli) -> Result<()> {
             execute(cli, command)
         }
         Commands::Polling { sub, hz } => {
+            if sub.is_none() && hz.is_none() {
+                return show_polling_help(cli);
+            }
             let rate = match sub {
                 Some(PollingSubcommands::Set { hz }) => *hz,
                 None => hz.ok_or_else(|| LorgarError::Config("specify polling set HZ".into()))?,
@@ -557,6 +919,9 @@ fn control(cli: &Cli) -> Result<()> {
             execute(cli, Command::SetPolling { rate })
         }
         Commands::Rgb { sub, target } => {
+            if sub.is_none() && target.is_none() {
+                return show_rgb_help(cli);
+            }
             let command = match sub {
                 Some(RgbCommands::Mode { mode }) => Command::SetLightingMode { mode: *mode },
                 Some(RgbCommands::Color { hex }) => color_command(hex)?,
@@ -628,7 +993,9 @@ pub fn run(cli: &Cli) -> Option<Result<()>> {
             }
             Ok(())
         })(),
-        Commands::Tray | Commands::Upower | Commands::Debug { .. } if !cli.daemon && !cli.json => {
+        Commands::Tray | Commands::Upower | Commands::Debug { .. }
+            if !is_daemon_mode(cli) && !cli.json =>
+        {
             return None
         }
         _ => control(cli),
@@ -643,6 +1010,13 @@ mod tests {
     fn command_tree_and_compatibility() {
         Cli::command().debug_assert();
         for args in [
+            vec!["lorgarctl", "status"],
+            vec!["lorgarctl", "dpi"],
+            vec!["lorgarctl", "dpi", "list"],
+            vec!["lorgarctl", "dpi", "preset", "fps"],
+            vec!["lorgarctl", "polling"],
+            vec!["lorgarctl", "rgb"],
+            vec!["lorgarctl", "--direct", "status"],
             vec!["lorgarctl", "battery", "--json"],
             vec!["lorgarctl", "monitor", "--json"],
             vec!["lorgarctl", "--daemon", "dpi", "set", "1", "1600"],

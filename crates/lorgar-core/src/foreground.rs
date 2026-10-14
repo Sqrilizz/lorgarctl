@@ -134,50 +134,9 @@ impl ForegroundBackend for X11 {
 pub struct KWinWayland;
 
 fn query_kwin_window_info() -> Result<Option<String>> {
-    let mut child = match Command::new("busctl")
-        .args([
-            "--user",
-            "--json=short",
-            "call",
-            "org.kde.KWin",
-            "/KWin",
-            "org.kde.KWin",
-            "queryWindowInfo",
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(_) => return Ok(None),
-    };
-
-    let deadline = Instant::now() + Duration::from_millis(250);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if !status.success() {
-                    return Ok(None);
-                }
-                break;
-            }
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(5)),
-            result => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(result
-                    .err()
-                    .map(LorgarError::Io)
-                    .unwrap_or(LorgarError::Timeout));
-            }
-        }
-    }
-
-    let mut output = String::new();
-    if let Some(mut stdout) = child.stdout.take() {
-        stdout.read_to_string(&mut output)?;
-    }
-    Ok(Some(output))
+    // Note: KWin's D-Bus method `queryWindowInfo` displays an interactive crosshair
+    // cursor to the user to click a window. It must never be called automatically.
+    Ok(None)
 }
 
 pub fn parse_kwin_json(json_str: &str) -> Option<ActiveApplication> {
@@ -285,11 +244,19 @@ mod tests {
     #[test]
     fn x11_window_parsing() {
         assert_eq!(
-            parse_window("_NET_ACTIVE_WINDOW(WINDOW): window id # 0x240003\n").unwrap(),
+            parse_window(
+                "_NET_ACTIVE_WINDOW(WINDOW): window id # 0x240003
+"
+            )
+            .unwrap(),
             Some(0x240003)
         );
         assert_eq!(
-            parse_window("_NET_ACTIVE_WINDOW(WINDOW): window id # 0x0\n").unwrap(),
+            parse_window(
+                "_NET_ACTIVE_WINDOW(WINDOW): window id # 0x0
+"
+            )
+            .unwrap(),
             None
         );
         assert!(parse_window("_NET_ACTIVE_WINDOW: not found").is_err());
