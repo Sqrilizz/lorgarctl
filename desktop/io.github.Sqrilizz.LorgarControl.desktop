@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
 Name=Lorgar Control
-Comment=Mouse sensitivity, lighting and profiles for the LORGAR MSA10W
+Comment=Mouse sensitivity, lighting, buttons and profiles for the LORGAR MSA10W
 Exec=lorgar-app
-Icon=input-mouse
+Icon=io.github.Sqrilizz.LorgarControl
 Terminal=false
 Categories=Settings;HardwareSettings;
 Keywords=LORGAR;MSA10W;mouse;DPI;RGB;

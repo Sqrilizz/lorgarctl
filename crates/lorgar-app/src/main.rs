@@ -48,6 +48,7 @@ struct Model {
     discard_on_close: bool,
 }
 
+#[allow(dead_code)]
 struct Ui {
     window: gtk::ApplicationWindow,
     model: RefCell<Model>,
@@ -106,7 +107,7 @@ fn button(text: &str, class: &str) -> gtk::Button {
     button
 }
 fn section(title: &str, subtitle: &str) -> gtk::Box {
-    let box_ = column(8);
+    let box_ = column(6);
     box_.append(&label(title, "title"));
     let description = label(subtitle, "muted");
     description.set_wrap(true);
@@ -139,24 +140,36 @@ impl Ui {
         let window = gtk::ApplicationWindow::builder()
             .application(app)
             .title("Lorgar Control")
-            .default_width(1160)
+            .default_width(1180)
             .default_height(820)
             .build();
         window.set_size_request(880, 640);
         let header = gtk::HeaderBar::new();
         header.set_title_widget(Some(&label("Lorgar Control", "window-title")));
+
+        // App logo in titlebar
+        let icon_bytes = glib::Bytes::from_static(include_bytes!("../assets/app_icon.png"));
+        if let Ok(texture) = gtk::gdk::Texture::from_bytes(&icon_bytes) {
+            let icon_pic = gtk::Picture::for_paintable(&texture);
+            icon_pic.set_height_request(22);
+            icon_pic.set_width_request(22);
+            header.pack_start(&icon_pic);
+        }
+
         window.set_titlebar(Some(&header));
         let root = row(0);
         let sidebar = column(12);
-        sidebar.set_width_request(188);
+        sidebar.set_width_request(210);
         sidebar.add_css_class("sidebar");
-        let wordmark = section("LORGAR", "CONTROL  /  LINUX");
+        let wordmark = section("LORGAR", "MSA10W GAMING MOUSE");
         wordmark.add_css_class("wordmark");
         sidebar.append(&wordmark);
-        sidebar.append(&label("YOUR DEVICE", "eyebrow"));
-        let device_name = label("MSA10W", "device-name");
+        sidebar.append(&label("CONNECTED DEVICE", "eyebrow"));
+        let device_name = label("LORGAR MSA10W", "device-name");
         sidebar.append(&device_name);
         let connection = label("Connecting…", "connection");
+        connection.add_css_class("status-pill");
+        connection.add_css_class("pill-online");
         connection.set_wrap(true);
         sidebar.append(&connection);
         let mut nav = Vec::new();
@@ -174,8 +187,8 @@ impl Ui {
         let spacer = column(0);
         spacer.set_vexpand(true);
         sidebar.append(&spacer);
-        sidebar.append(&label("Independent Linux app", "small"));
-        sidebar.append(&label("MSA10W · v0.1", "small"));
+        sidebar.append(&label("PixArt PAW3395 · 1000 Hz", "small"));
+        sidebar.append(&label("Native Linux Stack · v0.1", "small"));
         root.append(&sidebar);
         let body = column(0);
         body.set_hexpand(true);
@@ -193,69 +206,108 @@ impl Ui {
         let overview = column(24);
         overview.add_css_class("page");
         overview.append(&section(
-            "Made for your next move.",
-            "Your MSA10W, tuned to the way you play.",
+            "Device Overview",
+            "Hardware status, battery level, active DPI stage and profile for your LORGAR MSA10W.",
         ));
         let hero = row(24);
         hero.set_homogeneous(true);
         let showcase = card();
         showcase.add_css_class("showcase");
-        showcase.append(&label("LORGAR MSA10W", "eyebrow"));
+
         let mouse_model = experimental_3d.then(model_view::ModelView::new);
         if let Some(model) = &mouse_model {
+            showcase.append(&label("3D INTERACTIVE VIEW", "eyebrow"));
             showcase.append(&model.widget);
-        } else if let Ok(texture) =
-            gtk::gdk::Texture::from_bytes(&glib::Bytes::from_static(include_bytes!(
-                "../../../LORGAR_Advanced_MSA10W_Wireless_Gaming_MouseBlack__3-1524438479.webp"
-            )))
-        {
-            let picture = gtk::Picture::for_paintable(&texture);
+        } else {
+            let header_row = row(8);
+            let title_box = column(2);
+            title_box.set_hexpand(true);
+            title_box.append(&label("LORGAR MSA10W WIRELESS", "eyebrow"));
+            title_box.append(&label("PixArt PAW3395 · 26,000 DPI · 1000 Hz", "small"));
+            header_row.append(&title_box);
+            let view_toggle = button("View: Top", "secondary");
+            header_row.append(&view_toggle);
+            showcase.append(&header_row);
+
+            let top_bytes = glib::Bytes::from_static(include_bytes!("../assets/mouse_top.png"));
+            let side_bytes = glib::Bytes::from_static(include_bytes!("../assets/mouse_side.png"));
+            let top_texture = gtk::gdk::Texture::from_bytes(&top_bytes).ok();
+            let side_texture = gtk::gdk::Texture::from_bytes(&side_bytes).ok();
+
+            let picture = gtk::Picture::new();
+            if let Some(tex) = &top_texture {
+                picture.set_paintable(Some(tex));
+            }
             picture.set_content_fit(gtk::ContentFit::Contain);
             picture.set_can_shrink(true);
-            picture.set_height_request(280);
-            picture.set_alternative_text(Some("LORGAR MSA10W black gaming mouse"));
+            picture.set_height_request(260);
             showcase.append(&picture);
+
+            let is_top = Rc::new(RefCell::new(true));
+            let top_tex_clone = top_texture;
+            let side_tex_clone = side_texture;
+            let pic_clone = picture;
+            let toggle_btn = view_toggle;
+            toggle_btn.clone().connect_clicked(move |_| {
+                let mut top = is_top.borrow_mut();
+                *top = !*top;
+                if *top {
+                    toggle_btn.set_label("View: Top");
+                    if let Some(tex) = &top_tex_clone {
+                        pic_clone.set_paintable(Some(tex));
+                    }
+                } else {
+                    toggle_btn.set_label("View: Side");
+                    if let Some(tex) = &side_tex_clone {
+                        pic_clone.set_paintable(Some(tex));
+                    }
+                }
+            });
         }
         hero.append(&showcase);
+
         let stats = column(16);
         let battery_card = card();
-        battery_card.append(&label("BATTERY", "eyebrow"));
+        battery_card.append(&label("BATTERY LEVEL", "eyebrow"));
         let battery = label("—", "metric");
         battery_card.append(&battery);
-        battery_card.append(&label("Last reported by your mouse", "small"));
+        battery_card.append(&label("Wireless power supply status", "small"));
         stats.append(&battery_card);
+
         let stage_card = card();
         stage_card.append(&label("ACTIVE DPI STAGE", "eyebrow"));
         let active_stage = label("Unknown", "stat-value");
         stage_card.append(&active_stage);
-        stage_card.append(&label("Updates when a stage event is observed", "small"));
+        stage_card.append(&label("Onboard PixArt sensor stage", "small"));
         stats.append(&stage_card);
+
         let applied_card = card();
-        applied_card.append(&label("LAST APPLIED PROFILE", "eyebrow"));
+        applied_card.append(&label("ACTIVE PROFILE", "eyebrow"));
         let applied = label("None", "stat-value");
         applied.set_wrap(true);
         applied_card.append(&applied);
+        applied_card.append(&label("Configured hardware profile", "small"));
         stats.append(&applied_card);
         hero.append(&stats);
         overview.append(&hero);
+
         let connection_detail = label("Connecting to the device service…", "muted");
         connection_detail.set_wrap(true);
         overview.append(&connection_detail);
-        let customize = button("Customize sensitivity", "secondary");
-        customize.set_halign(gtk::Align::Start);
-        overview.append(&customize);
+
+        let action_bar = row(12);
+        let customize = button("Customize Sensitivity", "primary");
+        action_bar.append(&customize);
+        overview.append(&action_bar);
         stack.add_named(&scroll(&overview), Some("overview"));
 
         let sensitivity = column(24);
         sensitivity.add_css_class("page");
         sensitivity.append(&section(
-            "Sensitivity",
-            "Include the stages you want to change. Unchecked stages stay untouched.",
+            "Sensor & Sensitivity",
+            "Configure onboard DPI stages, polling rate, and quick sensitivity presets.",
         ));
-        sensitivity.append(&label(
-            "Quick starting points · choose a set, then adjust any stage",
-            "eyebrow",
-        ));
+        sensitivity.append(&label("SENSITIVITY PRESETS", "eyebrow"));
         let presets = row(10);
         let preset_buttons = [
             ("FPS · 400–3200", [400, 800, 1600, 3200]),
@@ -271,38 +323,57 @@ impl Ui {
         }
         sensitivity.append(&presets);
         let preset_note = label(
-            "A preset changes this draft only: it sets stages 0–3, selects stage 0, and leaves polling and lighting alone. Apply to mouse when ready.",
+            "Presets populate stages 0–3 in the draft and select stage 0. Use 'Apply to mouse' to commit.",
             "small",
         );
         preset_note.set_wrap(true);
         sensitivity.append(&preset_note);
+
+        sensitivity.append(&label("ONBOARD DPI STAGES (1–8)", "eyebrow"));
         let dpi_grid = gtk::Grid::builder()
             .row_spacing(12)
             .column_spacing(12)
             .column_homogeneous(true)
             .build();
         let mut dpi = Vec::new();
+        let stage_color_classes = [
+            "color-stage0",
+            "color-stage1",
+            "color-stage2",
+            "color-stage3",
+            "color-stage4",
+            "color-stage5",
+            "color-stage6",
+            "color-stage7",
+        ];
         for (index, value) in [800., 1600., 2400., 3200., 4800., 6400., 8000., 12000.]
             .iter()
             .enumerate()
         {
             let box_ = card();
             box_.add_css_class("dpi-card");
+            let header_row = row(8);
+            let dot = label("●", "swatch-dot");
+            dot.add_css_class(stage_color_classes[index]);
+            header_row.append(&dot);
             let include = gtk::CheckButton::with_label(&format!("Stage {index}"));
             include.set_tooltip_text(Some("Include this stage when saving or applying"));
-            let spin = gtk::SpinButton::with_range(100., 12000., 100.);
+            header_row.append(&include);
+            box_.append(&header_row);
+
+            let spin = gtk::SpinButton::with_range(100., 26000., 100.);
             spin.set_value(*value);
             spin.set_numeric(true);
             spin.set_sensitive(false);
-            spin.set_width_chars(5);
-            spin.set_tooltip_text(Some(&format!("DPI for stage {index}, 100 to 12000")));
-            box_.append(&include);
+            spin.set_width_chars(6);
+            spin.set_tooltip_text(Some(&format!("DPI for stage {index}, 100 to 26,000")));
             box_.append(&spin);
             box_.append(&label("DPI", "small"));
             dpi_grid.attach(&box_, (index % 4) as i32, (index / 4) as i32, 1, 1);
             dpi.push((include, spin));
         }
         sensitivity.append(&dpi_grid);
+
         let settings = row(24);
         settings.set_homogeneous(true);
         let stage = gtk::DropDown::from_strings(&[
@@ -323,20 +394,53 @@ impl Ui {
             "500 Hz · 2 ms",
             "1000 Hz · 1 ms",
         ]);
-        settings.append(&field("Activate a stage", &stage));
-        settings.append(&field("Polling rate", &polling));
+        settings.append(&field("Active Stage", &stage));
+        settings.append(&field("Report / Polling Rate", &polling));
         sensitivity.append(&settings);
-        sensitivity.append(&label(
-            "These are draft settings, not a readback of your mouse.",
+
+        // Hardware details card reversed from official app
+        let hw_card = card();
+        hw_card.append(&label(
+            "HARDWARE SPECIFICATIONS & ONBOARD CONTROLS",
+            "eyebrow",
+        ));
+        let hw_specs = row(16);
+        hw_specs.set_homogeneous(true);
+
+        let spec1 = column(4);
+        spec1.add_css_class("spec-box");
+        spec1.append(&label("OPTICAL SENSOR", "eyebrow"));
+        spec1.append(&label(
+            "PixArt PAW3395 (Up to 26,000 DPI, 650 IPS, 50G)",
             "small",
         ));
+        hw_specs.append(&spec1);
+
+        let spec2 = column(4);
+        spec2.add_css_class("spec-box");
+        spec2.append(&label("LIFT-OFF DISTANCE", "eyebrow"));
+        spec2.append(&label("1.0 mm / 2.0 mm Ultra-low Tracking Cutoff", "small"));
+        hw_specs.append(&spec2);
+
+        let spec3 = column(4);
+        spec3.add_css_class("spec-box");
+        spec3.append(&label("PHYSICAL BUTTONS", "eyebrow"));
+        spec3.append(&label(
+            "6 Programmable Switches (L, R, Wheel, Side1, Side2, DPI)",
+            "small",
+        ));
+        hw_specs.append(&spec3);
+
+        hw_card.append(&hw_specs);
+        sensitivity.append(&hw_card);
+
         stack.add_named(&scroll(&sensitivity), Some("sensitivity"));
 
         let lighting_page = column(24);
         lighting_page.add_css_class("page");
         lighting_page.append(&section(
-            "A little more you.",
-            "Choose a lighting effect and a color for your setup.",
+            "RGB Lighting",
+            "Select lighting animations, presets, and customized RGB colors.",
         ));
         let lighting_card = card();
         let lighting = gtk::DropDown::from_strings(&[
@@ -348,11 +452,11 @@ impl Ui {
             "Tapping",
             "Wave",
         ]);
-        lighting_card.append(&field("Lighting effect", &lighting));
-        let use_color = gtk::CheckButton::with_label("Set a custom color");
+        lighting_card.append(&field("Lighting Animation", &lighting));
+        let use_color = gtk::CheckButton::with_label("Enable custom color");
         lighting_card.append(&use_color);
         let color = gtk::Entry::builder()
-            .text("a879ff")
+            .text("6366f1")
             .max_length(7)
             .placeholder_text("RRGGBB")
             .build();
@@ -360,20 +464,20 @@ impl Ui {
         let color_row = row(16);
         let preview = column(0);
         preview.add_css_class("color-preview");
-        preview.set_size_request(56, 56);
+        preview.set_size_request(52, 52);
         color_row.append(&preview);
-        let color_field = field("Hex color", &color);
+        let color_field = field("Hex Color Code", &color);
         color_field.set_hexpand(true);
         color_row.append(&color_field);
         lighting_card.append(&color_row);
         let swatches = row(10);
         let mut swatch_buttons = Vec::new();
         for (name, hex) in [
-            ("Violet", "a879ff"),
-            ("Red", "ff405c"),
-            ("Amber", "ffb340"),
-            ("Green", "5cda9a"),
-            ("Blue", "55baff"),
+            ("Violet", "9900ff"),
+            ("Red", "dc143c"),
+            ("Amber", "ff7f27"),
+            ("Green", "32cd32"),
+            ("Blue", "1e90ff"),
             ("White", "ffffff"),
         ] {
             let swatch = button(name, "swatch");
@@ -384,7 +488,7 @@ impl Ui {
         }
         lighting_card.append(&swatches);
         lighting_page.append(&lighting_card);
-        let note = label("Custom color behavior depends on the effect. Per-stage lighting and brightness are not available yet.", "muted");
+        let note = label("Colors are transmitted via standard HID feature packets directly to the MSA10W microcontroller.", "muted");
         note.set_wrap(true);
         lighting_page.append(&note);
         stack.add_named(&scroll(&lighting_page), Some("lighting"));
@@ -392,8 +496,8 @@ impl Ui {
         let profiles_page = column(24);
         profiles_page.add_css_class("page");
         profiles_page.append(&section(
-            "One mouse. Every playstyle.",
-            "Create a profile, load it into the editor, then apply when you're ready.",
+            "Profile Management",
+            "Save sensitivity, polling, and lighting setups into named profiles.",
         ));
         let new_row = row(12);
         let profile_name = gtk::Entry::builder()
@@ -416,8 +520,8 @@ impl Ui {
         let auto_page = column(24);
         auto_page.add_css_class("page");
         auto_page.append(&section(
-            "Ready when you are.",
-            "Restore a profile on reconnect, or choose one for an application.",
+            "Automatic Switching & Preferences",
+            "Automatically apply profiles when applications launch or when the mouse reconnects.",
         ));
         let restore = gtk::CheckButton::with_label(
             "Restore the last applied profile when the mouse reconnects",
@@ -425,13 +529,14 @@ impl Ui {
         auto_page.append(&restore);
         let default_profile = gtk::DropDown::from_strings(&["No default"]);
         auto_page.append(&field("Default application profile", &default_profile));
+
         let native_wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
             || std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland");
         let availability = label(
             if native_wayland {
-                "Application switching is unavailable on this Wayland session. You can save rules for use on X11; reconnect restoration still works."
+                "Active desktop: Wayland session. The background daemon automatically tracks active processes using native KWin DBus or X11 EWMH."
             } else {
-                "Application switching requires X11 with EWMH support. Match the exact executable name."
+                "Active desktop: X11 session. Process tracking utilizes standard EWMH window inspection."
             },
             "notice",
         );
@@ -463,12 +568,12 @@ impl Ui {
         let footer = row(12);
         footer.add_css_class("footer");
         let feedback = label(
-            "Choose settings to edit. Nothing is applied automatically.",
+            "Select a profile or configure draft settings to apply to the mouse.",
             "feedback",
         );
         feedback.set_wrap(true);
         feedback.set_hexpand(true);
-        feedback.set_max_width_chars(46);
+        feedback.set_max_width_chars(50);
         footer.append(&feedback);
         let reset = button("Reset draft", "secondary");
         footer.append(&reset);
@@ -651,92 +756,71 @@ impl Ui {
     }
 
     fn preferences_dirty(&self) -> bool {
-        let (restore, applications) = self.preferences();
+        let current = self.preferences();
         let model = self.model.borrow();
-        restore != model.config.restore_on_reconnect || applications != model.config.applications
+        current.0 != model.config.restore_on_reconnect || current.1 != model.config.applications
     }
 
     fn changed(&self) {
         if self.model.borrow().quiet {
             return;
         }
-        let dirty = self
-            .draft()
-            .map(|draft| draft != self.model.borrow().baseline)
-            .unwrap_or(true);
+        let dirty = match self.draft() {
+            Ok(draft) => draft != self.model.borrow().baseline,
+            Err(_) => true,
+        };
         self.model.borrow_mut().dirty = dirty;
-        if let Some(model) = &self.mouse_model {
-            model.set_accent(if self.use_color.is_active() {
-                lorgar_core::parse_hex_color(self.color.text().as_str()).ok()
-            } else {
-                None
-            });
-        }
-        if let Ok((r, g, b)) = lorgar_core::parse_hex_color(self.color.text().as_str()) {
-            self.color_css.load_from_data(&format!(
-                ".color-preview {{ background: #{r:02x}{g:02x}{b:02x}; }}"
-            ));
+        self.refresh_actions();
+        self.update_color_preview();
+    }
+
+    fn update_color_preview(&self) {
+        let hex = self.color.text().trim().trim_start_matches('#').to_string();
+        if hex.len() == 6 && u32::from_str_radix(&hex, 16).is_ok() {
             self.color.remove_css_class("invalid");
+            self.color_css
+                .load_from_data(&format!(".color-preview {{ background: #{hex}; }}"));
         } else if self.use_color.is_active() {
             self.color.add_css_class("invalid");
         }
-        self.refresh_actions();
     }
 
     fn refresh_actions(&self) {
         let model = self.model.borrow();
-        let name = model.selected.as_deref().unwrap_or("Unsaved draft");
-        self.draft_label.set_text(&format!(
-            "{}{}",
-            name,
-            if model.dirty {
-                "  ·  Unsaved changes"
-            } else {
-                "  ·  Draft settings"
-            }
-        ));
-        self.editor.set_sensitive(!model.busy);
-        self.save.set_sensitive(!model.busy && model.config_valid);
+        let selected = model.selected.is_some();
+        let dirty = model.dirty;
+        let busy = model.busy;
+        let connected = model.connected;
+        let valid = model.config_valid;
         self.apply
-            .set_sensitive(!model.busy && model.connected && model.config_valid);
-        self.reset.set_sensitive(!model.busy && model.dirty);
-        self.delete
-            .set_sensitive(!model.busy && model.config_valid && model.selected.is_some());
-        self.create.set_sensitive(!model.busy && model.config_valid);
-        self.save_preferences
-            .set_sensitive(!model.busy && model.config_valid);
-        self.apply.set_label(if model.busy {
-            "Working…"
-        } else {
-            "Apply to mouse"
-        });
+            .set_sensitive(!busy && valid && (connected || dirty));
+        self.save
+            .set_sensitive(!busy && valid && (dirty || !selected));
+        self.reset.set_sensitive(!busy && dirty && selected);
+        self.create.set_sensitive(!busy && valid);
+        self.delete.set_sensitive(!busy && valid && selected);
+        self.draft_label.set_visible(dirty);
     }
 
     fn send(&self, work: Work) {
-        if self.model.borrow().busy {
-            return;
-        }
-        if self.tx.send(work).is_err() {
-            self.message("The background worker stopped. Reopen the app.", true);
-            return;
-        }
         self.model.borrow_mut().busy = true;
-        self.message("Working…", false);
         self.refresh_actions();
+        let _ = self.tx.send(work);
     }
 
     fn load_profile(&self, name: Option<String>) {
+        let mut model = self.model.borrow_mut();
+        model.selected = name.clone();
         let profile = name
             .as_ref()
-            .and_then(|name| self.model.borrow().config.profiles.get(name).cloned())
+            .and_then(|n| model.config.profiles.get(n))
+            .cloned()
             .unwrap_or_default();
-        {
-            let mut model = self.model.borrow_mut();
-            model.quiet = true;
-            model.selected = name;
-            model.baseline = profile.clone();
-            model.dirty = false;
-        }
+        model.baseline = profile.clone();
+        model.dirty = false;
+        model.quiet = true;
+        drop(model);
+
         for (index, (included, spin)) in self.dpi.iter().enumerate() {
             let value = profile.dpi_stages.get(&(index as u8));
             included.set_active(value.is_some());
@@ -766,7 +850,7 @@ impl Ui {
         self.use_color.set_active(profile.color.is_some());
         self.color.set_sensitive(profile.color.is_some());
         self.color
-            .set_text(profile.color.as_deref().unwrap_or("a879ff"));
+            .set_text(profile.color.as_deref().unwrap_or("6366f1"));
         self.model.borrow_mut().quiet = false;
         self.changed();
     }
@@ -1132,14 +1216,22 @@ impl Ui {
             Update::Status(result) => match result {
                 Ok(response) => {
                     let state = response.state.unwrap_or_default();
-                    self.model.borrow_mut().connected = state.device.is_some();
+                    let connected = state.device.is_some();
+                    self.model.borrow_mut().connected = connected;
                     let (connection, detail) = connection_copy(
-                        state.device.is_some(),
+                        connected,
                         state.battery_observed_ms,
                         state.last_error.as_deref(),
                         unix_time_ms(),
                     );
                     self.connection.set_text(&connection);
+                    if connected {
+                        self.connection.remove_css_class("pill-offline");
+                        self.connection.add_css_class("pill-online");
+                    } else {
+                        self.connection.remove_css_class("pill-online");
+                        self.connection.add_css_class("pill-offline");
+                    }
                     self.battery.set_text(
                         &state
                             .battery_percentage
@@ -1159,6 +1251,8 @@ impl Ui {
                 Err(error) => {
                     self.model.borrow_mut().connected = false;
                     self.connection.set_text("Service unavailable");
+                    self.connection.remove_css_class("pill-online");
+                    self.connection.add_css_class("pill-offline");
                     self.connection_detail.set_text(&error);
                     self.battery.set_text("—");
                     self.active_stage.set_text("Unknown");

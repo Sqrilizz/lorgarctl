@@ -9,6 +9,7 @@ pub struct ModelView {
     pub widget: gtk::Box,
     area: gtk::DrawingArea,
     view: Rc<Cell<View>>,
+    #[allow(dead_code)]
     accent: Rc<Cell<[f32; 3]>>,
 }
 
@@ -139,6 +140,7 @@ impl ModelView {
         result
     }
 
+    #[allow(dead_code)]
     pub fn set_accent(&self, color: Option<(u8, u8, u8)>) {
         let next = color
             .map(|(r, g, b)| [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0])

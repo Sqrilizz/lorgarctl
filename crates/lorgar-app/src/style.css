@@ -1,62 +1,456 @@
-@define-color base #101217;
-@define-color surface #191c24;
-@define-color raised #222631;
-@define-color border #303542;
-@define-color text #f1f2f7;
-@define-color secondary #b6bccb;
-@define-color accent #bb9aff;
+/* Modern LORGAR Control GTK4 Styling */
 
-window { background: @base; color: @text; font-family: Inter, sans-serif; font-size: 14px; }
-headerbar { background: #14171d; border-bottom: 1px solid @border; box-shadow: none; }
-.window-title { font-weight: 600; font-size: 13px; }
-.sidebar { padding: 28px 18px 24px; background: #15181f; border-right: 1px solid @border; }
-.wordmark { margin-bottom: 24px; }
-.wordmark .title { font-size: 26px; font-weight: 800; }
-.wordmark .muted { font-size: 10px; color: @accent; }
-.eyebrow { color: @secondary; font-size: 11px; font-weight: 600; }
-.device-name { font-size: 20px; font-weight: 650; }
-.connection { color: @accent; font-size: 12px; margin-bottom: 22px; }
-.toolbar { padding: 14px 30px; border-bottom: 1px solid @border; background: #15181f; }
-.page { padding: 30px; }
-.title { font-size: 30px; font-weight: 700; }
-.muted { color: @secondary; font-size: 14px; }
-.small { color: @secondary; font-size: 11px; }
-.card { padding: 22px; background: @surface; border: 1px solid @border; border-radius: 16px; }
-.card-title { font-size: 18px; font-weight: 600; }
-.showcase { background: linear-gradient(150deg, #30283f, #191c24 70%); }
-.metric { font-size: 46px; font-weight: 650; }
-.stat-value { font-size: 22px; font-weight: 600; }
-.field-label { font-size: 13px; font-weight: 550; }
-.dpi-card { padding: 18px 12px; border-radius: 12px; }
-.profile-row { padding: 16px 18px; background: @surface; border: 1px solid @border; border-radius: 12px; }
-.notice { padding: 16px; background: #272335; color: #dfd0ff; border-radius: 12px; }
-.footer { padding: 18px 24px; border-top: 1px solid @border; background: #15181f; }
-.feedback { font-size: 12px; color: @secondary; }
-.error { color: #ffadb6; }
-button { min-height: 32px; padding: 6px 15px; border-radius: 9px; border: 1px solid @border; box-shadow: none; font-weight: 550; }
-button.secondary { background: @raised; color: @text; }
-button.secondary:hover { background: #303644; }
-button.primary { background: @accent; color: #191023; border-color: @accent; }
-button.primary:hover { background: #d0b8ff; }
-button.danger { background: #32232a; color: #ffadb6; border-color: #63404b; }
-button.nav { background: transparent; border-color: transparent; color: @secondary; padding: 8px 12px; }
-button.nav:hover { background: @raised; color: @text; }
-button.nav.active { background: #30283f; color: #deceff; border-color: #59476f; }
-button:focus-visible, entry:focus-visible, dropdown:focus-visible { outline: 2px solid @accent; outline-offset: 2px; }
-button:disabled { opacity: 0.45; }
-entry, spinbutton, dropdown > button { background: @raised; color: @text; border: 1px solid @border; border-radius: 8px; min-height: 34px; }
-entry { padding: 4px 10px; }
-spinbutton entry { border: none; padding: 4px; }
-spinbutton button { border: none; padding: 3px; min-width: 18px; }
-checkbutton { min-height: 28px; }
-checkbutton check:checked { background: @accent; color: #191023; border-color: @accent; }
-.color-preview { border-radius: 12px; background: #a879ff; border: 1px solid #a8a2b4; }
-.invalid { border-color: #ffadb6; }
-.mouse-model:focus-visible { outline: 2px solid @accent; outline-offset: -2px; border-radius: 12px; }
-button.swatch { min-height: 42px; padding: 4px 8px; color: #14141a; border: none; }
-.violet { background: #a879ff; }
-.red { background: #ff405c; }
-.amber { background: #ffb340; }
-.green { background: #5cda9a; }
-.blue { background: #55baff; }
-.white { background: #ffffff; }
+@define-color base #111318;
+@define-color sidebar_bg #151821;
+@define-color surface #1a1e27;
+@define-color surface_raised #232834;
+@define-color surface_hover #2c3242;
+@define-color border_subtle rgba(255, 255, 255, 0.08);
+@define-color border_strong rgba(255, 255, 255, 0.16);
+@define-color text #f3f4f6;
+@define-color text_secondary #9ca3af;
+@define-color text_muted #6b7280;
+@define-color accent #6366f1;
+@define-color accent_hover #797cf5;
+@define-color accent_light rgba(99, 102, 241, 0.18);
+@define-color success #10b981;
+@define-color success_light rgba(16, 185, 129, 0.15);
+@define-color warning #f59e0b;
+@define-color danger #ef4444;
+@define-color danger_light rgba(239, 68, 68, 0.15);
+
+window {
+    background-color: @base;
+    color: @text;
+    font-size: 14px;
+}
+
+headerbar {
+    background: @sidebar_bg;
+    border-bottom: 1px solid @border_subtle;
+    box-shadow: none;
+    min-height: 48px;
+    padding: 0 12px;
+}
+
+.window-title {
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.3px;
+}
+
+/* Sidebar */
+.sidebar {
+    padding: 24px 16px 20px;
+    background-color: @sidebar_bg;
+    border-right: 1px solid @border_subtle;
+    min-width: 220px;
+}
+
+.wordmark {
+    margin-bottom: 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid @border_subtle;
+}
+
+.wordmark .title {
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 1.5px;
+    color: #ffffff;
+}
+
+.wordmark .muted {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    color: @accent;
+    margin-top: 2px;
+}
+
+.eyebrow {
+    color: @text_muted;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.device-name {
+    font-size: 18px;
+    font-weight: 750;
+    color: #ffffff;
+    margin-bottom: 2px;
+}
+
+.connection {
+    font-size: 12px;
+    font-weight: 600;
+    color: @success;
+    margin-bottom: 20px;
+}
+
+.status-pill {
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid transparent;
+}
+
+.pill-online {
+    background: @success_light;
+    color: #34d399;
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+.pill-offline {
+    background: rgba(107, 114, 128, 0.15);
+    color: @text_muted;
+    border-color: rgba(107, 114, 128, 0.25);
+}
+
+.pill-accent {
+    background: @accent_light;
+    color: #a5b4fc;
+    border-color: rgba(99, 102, 241, 0.35);
+}
+
+/* Navigation items */
+button.nav {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: @text_secondary;
+    padding: 10px 14px;
+    font-weight: 600;
+    font-size: 13.5px;
+    transition: all 150ms ease;
+}
+
+button.nav:hover {
+    background: @surface_raised;
+    color: #ffffff;
+}
+
+button.nav.active {
+    background: @accent_light;
+    color: #c7d2fe;
+    border-color: rgba(99, 102, 241, 0.4);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Top toolbar */
+.toolbar {
+    padding: 12px 28px;
+    border-bottom: 1px solid @border_subtle;
+    background: @sidebar_bg;
+}
+
+/* Pages and Cards */
+.page {
+    padding: 28px 32px;
+}
+
+.title {
+    font-size: 26px;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: -0.3px;
+}
+
+.muted {
+    color: @text_secondary;
+    font-size: 13.5px;
+    line-height: 1.4;
+}
+
+.small {
+    color: @text_muted;
+    font-size: 11.5px;
+}
+
+.card {
+    padding: 20px 22px;
+    background: @surface;
+    border: 1px solid @border_subtle;
+    border-radius: 14px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.card-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.showcase {
+    background: radial-gradient(
+        circle at center,
+        rgba(99, 102, 241, 0.14) 0%,
+        rgba(26, 30, 39, 0.8) 70%
+    );
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    border-radius: 16px;
+    padding: 24px;
+}
+
+.metric {
+    font-size: 40px;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: -0.5px;
+}
+
+.stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.field-label {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: @text_secondary;
+}
+
+.dpi-card {
+    padding: 16px 14px;
+    border-radius: 12px;
+    background: @surface_raised;
+    border: 1px solid @border_subtle;
+    transition: border-color 150ms ease;
+}
+
+.dpi-card:hover {
+    border-color: @border_strong;
+}
+
+.profile-row {
+    padding: 14px 18px;
+    background: @surface;
+    border: 1px solid @border_subtle;
+    border-radius: 12px;
+    transition: background-color 150ms ease;
+}
+
+.profile-row:hover {
+    background: @surface_raised;
+}
+
+.notice {
+    padding: 14px 18px;
+    background: rgba(99, 102, 241, 0.1);
+    color: #e0e7ff;
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    border-radius: 12px;
+    font-size: 13px;
+}
+
+/* Footer */
+.footer {
+    padding: 14px 28px;
+    border-top: 1px solid @border_subtle;
+    background: @sidebar_bg;
+}
+
+.feedback {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: @text_secondary;
+}
+
+.error {
+    color: #f87171;
+}
+
+/* Buttons */
+button {
+    min-height: 36px;
+    padding: 7px 16px;
+    border-radius: 10px;
+    border: 1px solid @border_subtle;
+    background: @surface_raised;
+    color: @text;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    font-weight: 600;
+    font-size: 13px;
+    transition: all 120ms ease;
+}
+
+button:hover {
+    background: @surface_hover;
+    border-color: @border_strong;
+}
+
+button.secondary {
+    background: @surface_raised;
+    color: @text;
+}
+
+button.secondary:hover {
+    background: @surface_hover;
+    border-color: @border_strong;
+}
+
+button.primary {
+    background: @accent;
+    color: #ffffff;
+    border-color: @accent;
+    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.35);
+}
+
+button.primary:hover {
+    background: @accent_hover;
+    border-color: @accent_hover;
+}
+
+button.danger {
+    background: @danger_light;
+    color: #fca5a5;
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+button.danger:hover {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: rgba(239, 68, 68, 0.5);
+}
+
+button:focus-visible,
+entry:focus-visible,
+dropdown:focus-visible {
+    outline: 2px solid @accent;
+    outline-offset: 2px;
+}
+
+button:disabled {
+    opacity: 0.45;
+}
+
+/* Form inputs */
+entry,
+spinbutton,
+dropdown > button {
+    background: @surface_raised;
+    color: @text;
+    border: 1px solid @border_subtle;
+    border-radius: 9px;
+    min-height: 36px;
+    font-size: 13px;
+}
+
+entry {
+    padding: 6px 12px;
+}
+
+entry:focus {
+    border-color: @accent;
+}
+
+spinbutton entry {
+    border: none;
+    padding: 4px;
+}
+
+spinbutton button {
+    border: none;
+    background: transparent;
+    padding: 4px;
+    min-width: 22px;
+    box-shadow: none;
+}
+
+checkbutton {
+    min-height: 28px;
+    font-weight: 550;
+}
+
+checkbutton check:checked {
+    background: @accent;
+    color: #ffffff;
+    border-color: @accent;
+}
+
+/* Color previews & swatches */
+.color-preview {
+    border-radius: 12px;
+    background: #6366f1;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.invalid {
+    border-color: @danger;
+}
+
+button.swatch {
+    min-height: 42px;
+    padding: 4px 8px;
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 9px;
+    font-weight: 600;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.swatch-dot {
+    min-width: 12px;
+    min-height: 12px;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+/* Stage color swatches from official hardware firmware */
+.color-stage0 {
+    background: #32cd32;
+}
+.color-stage1 {
+    background: #9900ff;
+}
+.color-stage2 {
+    background: #1e90ff;
+}
+.color-stage3 {
+    background: #ff7f27;
+}
+.color-stage4 {
+    background: #dc143c;
+}
+.color-stage5 {
+    background: #fff300;
+}
+.color-stage6 {
+    background: #fb569d;
+}
+.color-stage7 {
+    background: #4c1130;
+}
+
+.violet {
+    background: #9900ff;
+}
+.red {
+    background: #dc143c;
+}
+.amber {
+    background: #ff7f27;
+}
+.green {
+    background: #32cd32;
+}
+.blue {
+    background: #1e90ff;
+}
+.white {
+    background: #ffffff;
+    color: #111318 !important;
+    text-shadow: none !important;
+}
+
+/* Specs table */
+.spec-box {
+    padding: 10px 14px;
+    background: @surface_raised;
+    border-radius: 10px;
+    border: 1px solid @border_subtle;
+}
