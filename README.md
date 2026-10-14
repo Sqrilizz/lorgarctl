@@ -46,8 +46,8 @@ Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wi
 | **Linux Kernel Module (`hid-lorgar`)** | **100.0%** | [`kernel/`](kernel) | `/sys/class/power_supply`, sysfs controls, DKMS |
 | **Daemon & CLI Management Stack** | **100.0%** | [`crates/`](crates) | `lorgarctl` (CLI/TUI menu), `lorgard` (IPC daemon) |
 | **Firmware Container & Checksum Engine** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#82-firmware-file-container-format) | [`lorgar-core::firmware`](crates/lorgar-core/src/firmware.rs), `lorgarctl firmware` |
-| **Bootloader & Flash Memory Protocol** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#83-low-level-bootloader--flash-protocol) | `0x08 0x08` (ReadFlash), `0x08 0x0d` (BootMode), `0xC0/C1` (Write) |
-| **Live ROM Dumping & Custom Flash Engine** | **In Progress** | [`protocol/msa10w.md`](protocol/msa10w.md#84-custom-firmware--dump-feasibility-analysis) | Active wired pipeline (`093a:c600`), EP04 interrupt calibration |
+| **Bootloader & Flash Memory Protocol** | **62.5%** | [`protocol/msa10w.md`](protocol/msa10w.md#83-low-level-bootloader--flash-protocol) | Protocol & opcodes mapped (75%), EP04 wire verification (50%) |
+| **Live ROM Dumping & Custom Flash Engine** | **In Progress (30%)** | [`protocol/msa10w.md`](protocol/msa10w.md#84-custom-firmware--dump-feasibility-analysis) | Active wired pipeline (`093a:c600`), EP04 calibration & safety checks |
 
 > **Coverage vs. live validation:** percentages above measure reverse-engineered
 > firmware packets/registers, not end-to-end live proof. Kernel query-transport
