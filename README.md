@@ -15,7 +15,7 @@ Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wi
 ## Reverse-Engineering & Implementation Status
 
 <p align="center">
-  <img src="assets/status.svg" alt="Implementation Status" width="100%">
+  <img src="assets/status.png" alt="Implementation Status" width="100%">
 </p>
 
 | Subsystem | Coverage | Documentation / Reference | Implementation |

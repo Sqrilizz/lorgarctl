@@ -153,7 +153,7 @@
 <rect x="129.1" y="118.8" width="10.9" height="11.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="3" y="3" width="131.5" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="6" y="14" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x01: DPI & LED</text>
+      <text x="6" y="14" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x01: DPI &amp; LED</text>
     </g>
 <rect x="0.0" y="134.0" width="10.9" height="10.8" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="12.9" y="134.0" width="10.9" height="10.8" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -267,7 +267,7 @@
 <rect x="129.1" y="249.2" width="10.9" height="10.8" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="3" y="137" width="134" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="6" y="148" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x02: Sensor & Sleep</text>
+      <text x="6" y="148" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x02: Sensor &amp; Sleep</text>
     </g>
 <rect x="144.0" y="0.0" width="10.2" height="11.7" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="156.2" y="0.0" width="10.2" height="11.7" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -443,7 +443,7 @@
 <rect x="278.8" y="169.8" width="10.2" height="10.2" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="147" y="87" width="139" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="150" y="98" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x04: Debounce & Fire</text>
+      <text x="150" y="98" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">Pkt 0x04: Debounce &amp; Fire</text>
     </g>
 <rect x="144.0" y="184.0" width="10.2" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="156.2" y="184.0" width="10.2" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -1480,7 +1480,7 @@
 <rect x="429.2" y="195.0" width="10.8" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="292" y="159" width="105.5" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="295" y="170" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">lorgarctl & TUI</text>
+      <text x="295" y="170" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">lorgarctl &amp; TUI</text>
     </g>
 <rect x="289.0" y="210.0" width="10.8" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
 <rect x="301.8" y="210.0" width="10.8" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
@@ -1532,7 +1532,7 @@
 <rect x="429.2" y="249.0" width="10.8" height="11.0" rx="1.5" fill="#2ea44f" opacity="0.92"/>
     <g>
       <rect x="292" y="213" width="105.5" height="14" rx="2" fill="#0d1117" opacity="0.85"/>
-      <text x="295" y="224" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">UPower & Plasma</text>
+      <text x="295" y="224" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="9px" font-weight="700" fill="#ffffff">UPower &amp; Plasma</text>
     </g>
   </g>
 </svg>
