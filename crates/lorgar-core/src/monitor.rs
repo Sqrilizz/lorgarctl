@@ -81,6 +81,10 @@ pub trait Session: Send {
     fn execute(&self, command: &Command) -> Result<()>;
     fn read(&self) -> Result<Vec<(LorgarDeviceInfo, Vec<u8>)>>;
     fn present(&self) -> Result<bool>;
+    fn set_sleep_timeout(&self, minutes: u8, active_stage: u8) -> Result<()> {
+        let _ = (minutes, active_stage);
+        Ok(())
+    }
 }
 
 pub trait Provider {
@@ -143,6 +147,9 @@ impl Session for HidSession {
     }
     fn execute(&self, command: &Command) -> Result<()> {
         self.device.execute(command)
+    }
+    fn set_sleep_timeout(&self, minutes: u8, active_stage: u8) -> Result<()> {
+        self.device.set_sleep_timeout(minutes, active_stage)
     }
     fn read(&self) -> Result<Vec<(LorgarDeviceInfo, Vec<u8>)>> {
         if let Some(error) = self.pending_error.borrow_mut().take() {
@@ -228,6 +235,15 @@ impl<P: Provider> Monitor<P> {
         self.next_open_ms = now.saturating_add(1000);
         self.pending_query_ms = None;
         events.push(TimedEvent::new(Event::Disconnected { reason }));
+    }
+
+    pub fn set_sleep_timeout(&mut self, minutes: u8) -> Result<()> {
+        let stage = self.state.active_stage.unwrap_or(1);
+        let session = self.session.as_ref().ok_or(LorgarError::DeviceNotFound {
+            vid: crate::VENDOR_ID,
+            pid: crate::PRODUCT_IDS[1],
+        })?;
+        session.set_sleep_timeout(minutes, stage)
     }
 
     pub fn execute(&mut self, command: &Command) -> Result<TimedEvent> {

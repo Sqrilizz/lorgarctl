@@ -391,6 +391,22 @@ impl InputPacket {
     }
 }
 
+pub fn build_set_sleep_timeout_packet(minutes: u8, active_stage: u8) -> Result<[u8; 32]> {
+    if !(1..=10).contains(&minutes) {
+        return Err(LorgarError::Config(format!(
+            "sleep timeout must be between 1 and 10 minutes (got {minutes})"
+        )));
+    }
+    let mut packet = [0u8; 32];
+    packet[0] = 0x02;
+    packet[1] = active_stage.min(7);
+    packet[2] = 0x01;
+    packet[3] = minutes;
+    let sum: u8 = packet[..31].iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
+    packet[31] = !sum;
+    Ok(packet)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -494,6 +510,18 @@ mod tests {
         assert_eq!(parse_hex_color("#00ff00").unwrap(), (0, 255, 0));
         assert_eq!(parse_hex_color("#a28466").unwrap(), (162, 132, 102));
         assert!(parse_hex_color("invalid").is_err());
+    }
+
+    #[test]
+    fn test_set_sleep_timeout_packet() {
+        assert!(build_set_sleep_timeout_packet(0, 1).is_err());
+        assert!(build_set_sleep_timeout_packet(11, 1).is_err());
+        let p = build_set_sleep_timeout_packet(5, 1).unwrap();
+        assert_eq!(p[0], 0x02);
+        assert_eq!(p[1], 1);
+        assert_eq!(p[3], 5);
+        let sum: u8 = p.iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
+        assert_eq!(sum, 0xff);
     }
 
     #[test]

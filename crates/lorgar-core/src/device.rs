@@ -214,6 +214,22 @@ impl Msa10w {
         Ok(payload)
     }
 
+    pub fn set_sleep_timeout(&self, minutes: u8, active_stage: u8) -> Result<()> {
+        let packet = crate::protocol::build_set_sleep_timeout_packet(minutes, active_stage)?;
+        let mut report = [0u8; 33];
+        report[1..].copy_from_slice(&packet);
+        let api = HidApi::new()?;
+        let c_path = std::ffi::CString::new(self.info.path.as_str()).map_err(|_| {
+            LorgarError::DeviceOpenFailed {
+                path: self.info.path.clone(),
+            }
+        })?;
+        let dev = api.open_path(&c_path)?;
+        dev.send_feature_report(&report)?;
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        Ok(())
+    }
+
     pub fn set_stage_color(&self, stage: u8, r: u8, g: u8, b: u8) -> Result<[u8; 8]> {
         let payload = build_set_stage_color_payload(stage, r, g, b)?;
         self.transport.send_feature_command(&payload)?;

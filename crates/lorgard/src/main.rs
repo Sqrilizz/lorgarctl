@@ -207,6 +207,10 @@ impl Daemon {
                 Ok(Response::default())
             }
             Action::Events { after } => Ok(self.log.since(after)),
+            Action::SetSleepTimeout { minutes } => {
+                self.monitor.set_sleep_timeout(minutes)?;
+                Ok(Response::default())
+            }
             Action::Reload => {
                 self.reload()?;
                 Ok(Response::default())

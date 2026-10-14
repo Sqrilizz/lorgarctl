@@ -893,6 +893,51 @@ fn doctor(cli: &Cli) -> Result<()> {
     )
 }
 
+fn handle_sleep(cli: &Cli, minutes: Option<u8>) -> Result<()> {
+    if let Some(mins) = minutes {
+        if !(1..=10).contains(&mins) {
+            return Err(LorgarError::Config(format!(
+                "sleep timeout must be between 1 and 10 minutes (got {mins})"
+            )));
+        }
+        if is_daemon_mode(cli) {
+            response(cli, Action::SetSleepTimeout { minutes: mins })?;
+        } else {
+            let msa = crate::open_device(cli.device.as_deref(), cli.debug)?;
+            msa.set_sleep_timeout(mins, 1)?;
+        }
+        if !cli.json {
+            println!(
+                "{} Sleep timeout set to {} minutes.",
+                "✓".green().bold(),
+                mins.to_string().cyan().bold()
+            );
+        } else {
+            output(
+                &json!({ "sleep_timeout_minutes": mins, "ok": true }),
+                cli.json,
+            )?;
+        }
+    } else {
+        if !cli.json {
+            println!(
+                "{}",
+                "LORGAR MSA10W Sleep / Hibernation Configuration".bold()
+            );
+            println!("  Allowed range: 1..10 minutes (hardware default: 5 min)");
+            println!("  Usage:         lorgarctl sleep <1..10>");
+            println!("  Example:       lorgarctl sleep 5");
+            println!("  Interactive:   lorgarctl menu (option 7)");
+        } else {
+            output(
+                &json!({ "min_minutes": 1, "max_minutes": 10, "default_minutes": 5 }),
+                cli.json,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn control(cli: &Cli) -> Result<()> {
     match &cli.command {
         Commands::Devices => {
@@ -903,6 +948,7 @@ fn control(cli: &Cli) -> Result<()> {
             };
             output(&devices, cli.json)
         }
+        Commands::Sleep { minutes } => handle_sleep(cli, *minutes),
         Commands::Status => status(cli, false),
         Commands::Battery { .. } => status(cli, true),
         Commands::Dpi { sub, stage, dpi } => {
@@ -1084,7 +1130,7 @@ fn run_menu(cli: &Cli) -> Result<()> {
         writeln!(out, "  [4] Change Polling Rate (125 / 250 / 500 / 1000 Hz)")?;
         writeln!(out, "  [5] Change RGB Lighting Mode")?;
         writeln!(out, "  [6] Set RGB Static Color")?;
-        writeln!(out, "  [7] Power-Saving & Sleep (Hibernation) Info")?;
+        writeln!(out, "  [7] Set Sleep Timeout (1..10 minutes)")?;
         writeln!(out, "  [8] Test Low-Battery Notification")?;
         writeln!(out, "  [9] Refresh status")?;
         writeln!(out, "  [0] Exit")?;
@@ -1231,20 +1277,32 @@ fn run_menu(cli: &Cli) -> Result<()> {
             "7" => {
                 println!(
                     "\n{}",
-                    "LORGAR MSA10W Power Saving & Hibernation".bold().white()
-                );
-                println!("  • Sensor: PixArt PAW3395 with multi-stage dynamic power management.");
-                println!(
-                    "  • Light Standby: After ~30s of inactivity, sensor tracking frequency dims."
+                    "Sleep / Hibernation Timeout (1..10 minutes)".bold().white()
                 );
                 println!(
-                    "  • Deep Sleep (Hibernation): Shuts off RF transmitter to preserve battery."
+                    "  • Sensor enters deep sleep and shuts off RF transmitter when inactive."
                 );
-                println!("    The 2.4 GHz USB receiver remains connected to your PC, but the mouse sleeps.");
-                println!(
-                    "  • Wake-up: Move the mouse or click any button to resume tracking in <50ms."
-                );
-                println!("  • Tip: Set RGB to 'off' or Polling to 500 Hz to extend battery life up to 100+ hours.");
+                println!("  • Current allowed range: 1 to 10 minutes.");
+                print!("Enter sleep timeout in minutes (1..10, [Enter] to cancel): ");
+                stdout().flush()?;
+                let mut sbuf = String::new();
+                if stdin().read_line(&mut sbuf).is_ok() {
+                    let trimmed = sbuf.trim();
+                    if !trimmed.is_empty() {
+                        if let Ok(m) = trimmed.parse::<u8>() {
+                            if (1..=10).contains(&m) {
+                                let _ = handle_sleep(cli, Some(m));
+                            } else {
+                                println!(
+                                    "{}",
+                                    "Timeout must be between 1 and 10 minutes.".yellow()
+                                );
+                            }
+                        } else {
+                            println!("{}", "Invalid number.".red());
+                        }
+                    }
+                }
                 pause_prompt();
             }
             "8" => {
@@ -1342,6 +1400,8 @@ mod tests {
         Cli::command().debug_assert();
         for args in [
             vec!["lorgarctl", "status"],
+            vec!["lorgarctl", "sleep"],
+            vec!["lorgarctl", "sleep", "5"],
             vec!["lorgarctl", "dpi"],
             vec!["lorgarctl", "dpi", "list"],
             vec!["lorgarctl", "dpi", "preset", "fps"],

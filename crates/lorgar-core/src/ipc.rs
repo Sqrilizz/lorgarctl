@@ -24,6 +24,7 @@ pub enum Action {
     Status,
     Devices,
     Execute { command: Command },
+    SetSleepTimeout { minutes: u8 },
     ApplyProfile { name: String },
     ApplyDraft { profile: crate::profiles::Profile },
     Events { after: u64 },

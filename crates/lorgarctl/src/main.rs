@@ -172,6 +172,12 @@ enum Commands {
         target: Option<String>,
     },
 
+    /// Manage mouse sleep / hibernation timeout (1..10 minutes)
+    Sleep {
+        /// Timeout in minutes (1..10, default: 5)
+        minutes: Option<u8>,
+    },
+
     /// Developer and reverse-engineering utilities
     Debug {
         #[command(subcommand)]
@@ -474,6 +480,7 @@ fn run_app(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Status
         | Commands::Menu
+        | Commands::Sleep { .. }
         | Commands::Devices
         | Commands::Battery { .. }
         | Commands::Dpi { .. }
