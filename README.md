@@ -12,13 +12,29 @@ Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wi
   <img src="LORGAR_Advanced_MSA10W_Wireless_Gaming_MouseBlack__3-1524438479.webp" alt="LORGAR MSA10W Wireless Gaming Mouse" width="620">
 </p>
 
+## Reverse-Engineering & Implementation Status
+
+<p align="center">
+  <img src="assets/status.svg" alt="Implementation Status" width="100%">
+</p>
+
+| Subsystem | Coverage | Documentation / Reference | Implementation |
+| :--- | :---: | :--- | :--- |
+| **Firmware NVRAM (Packets 0x01–0x09)** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#complete-firmware-nvram-packet-map) | [`lorgar-core::protocol`](crates/lorgar-core/src/protocol.rs) |
+| **HID Transport & Device Lock** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#hid-reports--commands) | [`lorgar-core::device`](crates/lorgar-core/src/device.rs) |
+| **Battery & Sleep Power States** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#sleep-timer--inactivity-timeout) | CLI `lorgarctl sleep`, daemon & kernel |
+| **Sensors & DPI Configuration** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#packet-0x05--0x06---dpi-stages) | 8 stages (100–26,000 DPI), active switching |
+| **RGB Effects & Palette** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#packet-0x03---dpi-led-indicator-colors) | Modes (Static, Breathing, Wave, Cycle), hex RGB |
+| **Linux Kernel Module (`hid-lorgar`)** | **100.0%** | [`kernel/`](kernel) | `/sys/class/power_supply`, sysfs controls, DKMS |
+| **Daemon & CLI Management Stack** | **100.0%** | [`crates/`](crates) | `lorgarctl` (CLI/TUI menu), `lorgard` (IPC daemon) |
+
 ---
 
 ## What's Included
 
 | Component | Path | Description |
 | :--- | :--- | :--- |
-| **`lorgarctl`** | [`crates/lorgarctl`](crates/lorgarctl) | Powerful CLI utility for mouse controls, scripting, diagnostics (`doctor`), shell completions, and bar integration (Waybar, Polybar, KDE). |
+| **`lorgarctl`** | [`crates/lorgarctl`](crates/lorgarctl) | Powerful CLI utility for mouse controls, interactive menu (`menu`), scripting, diagnostics (`doctor`), shell completions, and bar integration (Waybar, Polybar, KDE). |
 | **`lorgard`** | [`crates/lorgard`](crates/lorgard) | Lightweight background user daemon managing profiles, auto-switching, and IPC over `/run/user/$UID/lorgar/lorgard.sock`. |
 | **`hid-lorgar`** | [`kernel/`](kernel) | Optional Linux kernel module (DKMS) providing native `/sys/class/power_supply` battery integration and sysfs controls. |
 | **`lorgar-core`** | [`crates/lorgar-core`](crates/lorgar-core) | Pure Rust HID protocol parser, device discovery, and transport library. |
@@ -74,6 +90,14 @@ install -Dm755 target/release/lorgard ~/.local/bin/
 
 ## CLI Guide (`lorgarctl`)
 
+### Interactive TUI Menu
+
+Launch the interactive control menu to inspect battery, switch DPI stages, adjust RGB, configure sleep timeout, or manage profiles without memorizing flags:
+
+```bash
+lorgarctl menu
+```
+
 ### Status & Hardware Diagnostics
 
 ```bash
@@ -96,7 +120,7 @@ lorgarctl battery --short
 
 # Structured JSON (for Waybar, Polybar, or scripts)
 lorgarctl battery --json
-# Output: {"percentage":92,"icon":"🖱️","text":"92%","tooltip":"LORGAR MSA10W: 92%","class":"good"}
+# Output: {"percentage":92,"icon":"🖲️","text":"92%","tooltip":"LORGAR MSA10W: 92%","class":"good"}
 
 # Send desktop notification if battery is low (<= 20%)
 lorgarctl battery --notify --threshold 20
@@ -129,6 +153,15 @@ lorgarctl dpi set 2 3200
 
 # Switch active DPI stage immediately
 lorgarctl dpi active 1
+```
+
+### Sleep Timeout (Inactivity Hibernation)
+
+Set the mouse hardware sleep timer (1 to 10 minutes) before the sensor and MCU enter low-power hibernation:
+
+```bash
+# Set inactivity sleep timer to 5 minutes (persists in mouse NVRAM)
+lorgarctl sleep 5
 ```
 
 ### Polling Rate
