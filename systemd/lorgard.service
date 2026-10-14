@@ -3,7 +3,7 @@ Description=LORGAR MSA10W user control daemon
 After=graphical-session.target
 
 [Service]
-ExecStart=%h/.local/bin/lorgard
+ExecStart=%h/.local/bin/lorgard --restore-last-profile
 Restart=on-failure
 RestartSec=3
 UMask=0077

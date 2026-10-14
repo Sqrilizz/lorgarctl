@@ -9,3 +9,7 @@ ACTION!="remove", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="093a", ATTRS{idProduct}
 # interface as part of the mouse; UPower prefers mouse within one input node.
 ACTION!="remove", SUBSYSTEM=="input", ATTRS{idVendor}=="093a", ATTRS{idProduct}=="c600", ENV{ID_USB_INTERFACE_NUM}=="01", ENV{ID_INPUT_MOUSE}="1"
 ACTION!="remove", SUBSYSTEM=="input", ATTRS{idVendor}=="093a", ATTRS{idProduct}=="c601", ENV{ID_USB_INTERFACE_NUM}=="01", ENV{ID_INPUT_MOUSE}="1"
+
+# Automatically bind to hid-lorgar kernel driver when plugged in or booted
+ACTION=="add", SUBSYSTEM=="hid", DRIVERS=="hid-generic", ATTRS{idVendor}=="093a", ATTRS{idProduct}=="c600", RUN+="/bin/sh -c 'echo -n $kernel > /sys/bus/hid/drivers/hid-generic/unbind 2>/dev/null; modprobe hid-lorgar 2>/dev/null; echo -n $kernel > /sys/bus/hid/drivers/hid-lorgar/bind 2>/dev/null || true'"
+ACTION=="add", SUBSYSTEM=="hid", DRIVERS=="hid-generic", ATTRS{idVendor}=="093a", ATTRS{idProduct}=="c601", RUN+="/bin/sh -c 'echo -n $kernel > /sys/bus/hid/drivers/hid-generic/unbind 2>/dev/null; modprobe hid-lorgar 2>/dev/null; echo -n $kernel > /sys/bus/hid/drivers/hid-lorgar/bind 2>/dev/null || true'"
