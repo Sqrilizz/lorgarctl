@@ -12,6 +12,7 @@ run() {
 run cargo fmt --all -- --check
 run cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 run cargo test --workspace --locked
+run bash tools/check-versions.sh
 
 run cargo build --workspace --release --locked
 
@@ -35,10 +36,10 @@ else
     printf '\n[SKIP] udev validation: udevadm unavailable\n'
 fi
 
-run bash -n kernel/install-dkms.sh kernel/reload.sh kernel/verify-live.sh tools/probe-state.sh
+run bash -n kernel/install-dkms.sh kernel/reload.sh kernel/verify-live.sh tools/probe-state.sh tools/check-versions.sh tools/generate-completions.sh
 
 if command -v shellcheck >/dev/null 2>&1; then
-    run shellcheck kernel/install-dkms.sh kernel/reload.sh kernel/verify-live.sh tools/check.sh tools/probe-state.sh
+    run shellcheck kernel/install-dkms.sh kernel/reload.sh kernel/verify-live.sh tools/check.sh tools/check-versions.sh tools/generate-completions.sh tools/probe-state.sh
 else
     printf '\n[SKIP] shellcheck unavailable\n'
 fi

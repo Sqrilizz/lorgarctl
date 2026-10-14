@@ -23,10 +23,19 @@ jobs:
             pkg-config \
             libdbus-1-dev \
             libglib2.0-dev \
-            libudev-dev
+            libudev-dev \
+            libhidapi-dev
 
-      - name: Build
-        run: cargo build --verbose
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
-      - name: Run tests
-        run: cargo test --verbose
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Unified local gate (fmt, clippy, tests, versions, kernel if headers present)
+        run: bash tools/check.sh
+
+      - name: Lean build without default tray (guards --no-default-features)
+        run: cargo build -p lorgarctl --no-default-features --locked --verbose

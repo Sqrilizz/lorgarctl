@@ -1,6 +1,11 @@
 [Unit]
 Description=LORGAR MSA10W user control daemon
+Documentation=file:%h/Documents/ZZZZ/docs/control-stack.md
 After=graphical-session.target
+# Single HID owner: never run together with legacy direct-HID writers.
+Conflicts=lorgarctl-tray.service lorgarctl-upower.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 ExecStart=%h/.local/bin/lorgard --restore-last-profile

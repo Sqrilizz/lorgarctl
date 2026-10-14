@@ -1,7 +1,9 @@
 use clap::{Parser, Subcommand};
 use colored::*;
 use lorgar_core::{LightingMode, LorgarError, Msa10w, PollingRate, Result};
+mod hex;
 mod stack;
+mod tray;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -290,42 +292,6 @@ enum DebugCommands {
     },
 }
 
-fn format_hex_bytes(slice: &[u8]) -> String {
-    slice
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn parse_hex_payload(inputs: &[String]) -> Result<[u8; 8]> {
-    let joined = inputs.join(" ").replace("0x", "").replace(',', "");
-    let hex_chars: String = joined.chars().filter(|c| !c.is_whitespace()).collect();
-
-    if hex_chars.len() & 1 != 0 || !hex_chars.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(LorgarError::HexParseError(
-            "Odd number of hex characters".into(),
-        ));
-    }
-
-    let mut bytes = Vec::new();
-    for i in (0..hex_chars.len()).step_by(2) {
-        let byte_str = &hex_chars[i..i + 2];
-        let byte = u8::from_str_radix(byte_str, 16).map_err(|e| {
-            LorgarError::HexParseError(format!("Invalid hex byte '{}': {}", byte_str, e))
-        })?;
-        bytes.push(byte);
-    }
-
-    if bytes.len() != 8 {
-        return Err(LorgarError::InvalidFeatureLength { len: bytes.len() });
-    }
-
-    let mut arr = [0u8; 8];
-    arr.copy_from_slice(&bytes);
-    Ok(arr)
-}
-
 fn open_device(cli_device: Option<&str>, debug: bool) -> Result<Msa10w> {
     if let Some(path) = cli_device {
         if debug {
@@ -361,84 +327,6 @@ fn send_desktop_notification(title: &str, body: &str, critical: bool) {
             "battery-low"
         }),
     );
-}
-
-#[cfg(feature = "tray")]
-struct LorgarTray {
-    battery_percentage: Option<u8>,
-    active_stage: Option<u8>,
-    polling_rate_str: String,
-    rgb_mode_str: String,
-    stopped: std::sync::Arc<std::sync::atomic::AtomicBool>,
-}
-
-#[cfg(feature = "tray")]
-impl ksni::Tray for LorgarTray {
-    fn icon_name(&self) -> String {
-        "input-mouse".to_string()
-    }
-
-    fn title(&self) -> String {
-        match self.battery_percentage {
-            Some(percentage) => format!("LORGAR MSA10W ({percentage}%)"),
-            None => "LORGAR MSA10W (unknown)".into(),
-        }
-    }
-
-    fn tool_tip(&self) -> ksni::ToolTip {
-        ksni::ToolTip {
-            title: self.title(),
-            description: format!(
-                "Stage: {:?} | Polling: {} | RGB: {}",
-                self.active_stage, self.polling_rate_str, self.rgb_mode_str
-            ),
-            icon_name: "input-mouse".to_string(),
-            ..Default::default()
-        }
-    }
-
-    fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
-        use ksni::menu::*;
-        vec![
-            StandardItem {
-                label: match self.battery_percentage {
-                    Some(percentage) => format!("Battery: {percentage}%"),
-                    None => "Battery: unknown".into(),
-                },
-                enabled: false,
-                ..Default::default()
-            }
-            .into(),
-            StandardItem {
-                label: format!("Active stage: {:?}", self.active_stage),
-                enabled: false,
-                ..Default::default()
-            }
-            .into(),
-            StandardItem {
-                label: format!("Polling rate: {}", self.polling_rate_str),
-                enabled: false,
-                ..Default::default()
-            }
-            .into(),
-            StandardItem {
-                label: format!("RGB mode: {}", self.rgb_mode_str),
-                enabled: false,
-                ..Default::default()
-            }
-            .into(),
-            MenuItem::Separator,
-            StandardItem {
-                label: "Quit".to_string(),
-                activate: Box::new(|tray: &mut LorgarTray| {
-                    tray.stopped
-                        .store(true, std::sync::atomic::Ordering::Relaxed)
-                }),
-                ..Default::default()
-            }
-            .into(),
-        ]
-    }
 }
 
 fn main() -> std::process::ExitCode {
@@ -538,110 +426,16 @@ fn run_app(cli: Cli) -> Result<()> {
             Ok(())
         }
 
-        Commands::Tray => {
-            #[cfg(not(feature = "tray"))]
-            {
-                eprintln!("lorgarctl: tray support was not enabled at compile time");
-                Err(lorgar_core::LorgarError::Config(
-                    "tray feature disabled".into(),
-                ))
-            }
-            #[cfg(feature = "tray")]
-            {
-                println!(
-                    "{}",
-                    "Starting LORGAR MSA10W System Tray Daemon..."
-                        .bold()
-                        .green()
-                );
-                println!("Icon registered in System Tray. Low battery notifications active.");
-
-                let stopped = lorgar_core::monitor::shutdown_flag()?;
-                let initial_status = open_device(cli.device.as_deref(), cli.debug)
-                    .and_then(|dev| dev.get_status())
-                    .ok();
-
-                let initial_bat = initial_status.as_ref().map(|s| s.battery_percentage);
-                let initial_stage = initial_status.as_ref().and_then(|s| s.active_stage);
-                let initial_poll = initial_status
-                    .as_ref()
-                    .and_then(|s| s.polling_rate)
-                    .map(|r| format!("{} Hz", r.hz()))
-                    .unwrap_or_else(|| "N/A".into());
-                let initial_rgb = initial_status
-                    .as_ref()
-                    .and_then(|s| s.lighting_mode)
-                    .map(|m| format!("{:?}", m))
-                    .unwrap_or_else(|| "N/A".into());
-
-                let tray = LorgarTray {
-                    battery_percentage: initial_bat,
-                    active_stage: initial_stage,
-                    polling_rate_str: initial_poll,
-                    rgb_mode_str: initial_rgb,
-                    stopped: stopped.clone(),
-                };
-
-                let service = ksni::TrayService::new(tray);
-                let handle = service.handle();
-                service.spawn();
-                let mut low_notified = false;
-
-                while !stopped.load(std::sync::atomic::Ordering::Relaxed) {
-                    wait_or_stop(&stopped, 120);
-                    if stopped.load(std::sync::atomic::Ordering::Relaxed) {
-                        break;
-                    }
-
-                    match open_device(cli.device.as_deref(), false).and_then(|dev| dev.get_status())
-                    {
-                        Ok(st) => {
-                            let bat = st.battery_percentage;
-                            let stage = st.active_stage;
-                            let poll = st
-                                .polling_rate
-                                .map(|r| format!("{} Hz", r.hz()))
-                                .unwrap_or_else(|| "N/A".into());
-                            let rgb = st
-                                .lighting_mode
-                                .map(|m| format!("{:?}", m))
-                                .unwrap_or_else(|| "N/A".into());
-
-                            if bat <= 20 && !low_notified {
-                                let is_critical = bat <= 10;
-                                let title = format!("LORGAR MSA10W battery low ({bat}%)");
-                                let body = format!(
-                                    "Mouse battery level is at {}%. Please connect charger.",
-                                    bat
-                                );
-                                send_desktop_notification(&title, &body, is_critical);
-                                low_notified = true;
-                            } else if bat > 20 {
-                                low_notified = false;
-                            }
-
-                            handle.update(move |t: &mut LorgarTray| {
-                                t.battery_percentage = Some(bat);
-                                t.active_stage = stage;
-                                t.polling_rate_str = poll;
-                                t.rgb_mode_str = rgb;
-                            });
-                        }
-                        Err(_) => {
-                            handle.update(|t: &mut LorgarTray| {
-                                t.battery_percentage = None;
-                                t.active_stage = None;
-                            });
-                        }
-                    }
-                }
-                handle.shutdown();
-                Ok(())
-            }
-        }
+        Commands::Tray => crate::tray::run(
+            cli.device.as_deref(),
+            cli.debug,
+            &open_device,
+            &send_desktop_notification,
+            &wait_or_stop,
+        ),
         Commands::Debug { sub } => match sub {
             DebugCommands::SendFeature { bytes } => {
-                let payload = parse_hex_payload(&bytes)?;
+                let payload = crate::hex::parse_hex_payload(&bytes)?;
                 let dev = open_device(cli.device.as_deref(), cli.debug)?;
                 let info = dev.info();
 
@@ -655,8 +449,14 @@ fn run_app(cli: Cli) -> Result<()> {
                 report[0] = 0x00;
                 report[1..9].copy_from_slice(&payload);
 
-                println!("Payload: {}", format_hex_bytes(&payload).yellow());
-                println!("Report:  {}", format_hex_bytes(&report).yellow());
+                println!(
+                    "Payload: {}",
+                    crate::hex::format_hex_bytes(&payload).yellow()
+                );
+                println!(
+                    "Report:  {}",
+                    crate::hex::format_hex_bytes(&report).yellow()
+                );
 
                 dev.send_raw_feature(&payload)?;
                 println!("Result:  {}", "OK".green().bold());
@@ -668,7 +468,7 @@ fn run_app(cli: Cli) -> Result<()> {
                 let payload = if bytes.is_empty() {
                     [0x82, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
                 } else {
-                    parse_hex_payload(&bytes)?
+                    crate::hex::parse_hex_payload(&bytes)?
                 };
 
                 let dev = open_device(cli.device.as_deref(), cli.debug)?;
@@ -677,14 +477,14 @@ fn run_app(cli: Cli) -> Result<()> {
                 println!(
                     "Sending feature query to {} ({})",
                     info.path.cyan(),
-                    format_hex_bytes(&payload).yellow()
+                    crate::hex::format_hex_bytes(&payload).yellow()
                 );
 
                 let response = dev.query_feature(&payload, 1000)?;
 
                 println!("Received {} byte(s) response:", response.len());
                 for chunk in response.chunks(16) {
-                    println!("  {}", format_hex_bytes(chunk).cyan());
+                    println!("  {}", crate::hex::format_hex_bytes(chunk).cyan());
                 }
 
                 Ok(())
@@ -704,21 +504,8 @@ fn wait_or_stop(stopped: &std::sync::atomic::AtomicBool, seconds: u64) {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "tray")]
-    use super::*;
-
-    #[cfg(feature = "tray")]
     #[test]
-    fn tray_never_fabricates_zero_battery() {
-        let mut tray = LorgarTray {
-            battery_percentage: None,
-            active_stage: None,
-            polling_rate_str: "N/A".into(),
-            rgb_mode_str: "N/A".into(),
-            stopped: Default::default(),
-        };
-        assert_eq!(ksni::Tray::title(&tray), "LORGAR MSA10W (unknown)");
-        tray.battery_percentage = Some(57);
-        assert_eq!(ksni::Tray::title(&tray), "LORGAR MSA10W (57%)");
+    fn hex_helpers_reject_invalid_without_panicking() {
+        assert!(crate::hex::parse_hex_payload(&["€€".to_string()]).is_err());
     }
 }

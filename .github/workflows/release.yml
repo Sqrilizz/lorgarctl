@@ -24,22 +24,39 @@ jobs:
             pkg-config \
             libdbus-1-dev \
             libglib2.0-dev \
-            libudev-dev
+            libudev-dev \
+            libhidapi-dev
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check version sync
+        run: bash tools/check-versions.sh
+
       - name: Build release binaries
         run: cargo build --workspace --release --locked
+
+      - name: Generate shell completions
+        run: bash tools/generate-completions.sh target/completions
 
       - name: Prepare release archive
         run: |
           RELEASE_DIR="lorgar-${{ github.ref_name }}-linux-x86_64"
-          mkdir -p "$RELEASE_DIR/bin"
+          mkdir -p "$RELEASE_DIR/bin" "$RELEASE_DIR/completions"
           cp target/release/lorgarctl "$RELEASE_DIR/bin/"
           cp target/release/lorgard "$RELEASE_DIR/bin/"
-          cp -r udev systemd plasmoid kernel assets "$RELEASE_DIR/"
-          cp README.md LICENSE-MIT LICENSE-APACHE "$RELEASE_DIR/"
+          cp target/completions/* "$RELEASE_DIR/completions/"
+          cp -r udev systemd plasmoid assets "$RELEASE_DIR/"
+          # Ship only kernel sources + packaging, never local build outputs.
+          mkdir -p "$RELEASE_DIR/kernel"
+          cp kernel/*.c kernel/*.h kernel/Makefile kernel/dkms.conf \
+            kernel/*.conf kernel/*.sh kernel/README.md "$RELEASE_DIR/kernel/" 2>/dev/null || true
+          cp README.md VERSIONS.md LICENSE-MIT LICENSE-APACHE "$RELEASE_DIR/"
+          cp Cargo.lock "$RELEASE_DIR/"
+          cargo tree --locked --prefix none > "$RELEASE_DIR/dependency-list.txt"
 
           tar -czf "$RELEASE_DIR.tar.gz" "$RELEASE_DIR"
           sha256sum "$RELEASE_DIR.tar.gz" > "$RELEASE_DIR.tar.gz.sha256"

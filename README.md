@@ -6,11 +6,25 @@
 [![Kernel License](https://img.shields.io/badge/Kernel-GPL--2.0-red.svg)](kernel/LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux-green.svg?logo=linux)](https://kernel.org)
 
-Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wireless gaming mouse (Pixart sensor, USB VID: `0x093a`, Wired PID: `0xc600`, Wireless 2.4 GHz Dongle PID: `0xc601`). No proprietary Windows software required.
+<table>
+<tr>
+<td width="300" align="center">
+<img src="LORGAR_Advanced_MSA10W_Wireless_Gaming_MouseBlack__3-1524438479.webp" alt="LORGAR MSA10W Wireless Gaming Mouse" width="280">
+</td>
+<td>
 
-<p align="center">
-  <img src="LORGAR_Advanced_MSA10W_Wireless_Gaming_MouseBlack__3-1524438479.webp" alt="LORGAR MSA10W Wireless Gaming Mouse" width="620">
-</p>
+Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wireless gaming mouse. No proprietary Windows software required.
+
+- Pixart sensor, 100–26,000 DPI, 8 onboard stages
+- Wired `093a:c600` and 2.4 GHz dongle `093a:c601`
+- Native battery via `power_supply` / UPower (`lorgarctl battery --json`)
+- `lorgarctl menu`, `lorgard` daemon, optional `hid-lorgar` DKMS module
+
+**[Quick Start](#quick-start)** · **[CLI Guide](#cli-guide-lorgarctl)** · **[Daemon](#background-daemon-lorgard)** · **[Kernel](#linux-kernel-module-hid-lorgar)**
+
+</td>
+</tr>
+</table>
 
 ## Status
 
@@ -29,6 +43,14 @@ Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wi
 | **RGB Effects & Palette** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#packet-0x03---dpi-led-indicator-colors) | Modes (Static, Breathing, Wave, Cycle), hex RGB |
 | **Linux Kernel Module (`hid-lorgar`)** | **100.0%** | [`kernel/`](kernel) | `/sys/class/power_supply`, sysfs controls, DKMS |
 | **Daemon & CLI Management Stack** | **100.0%** | [`crates/`](crates) | `lorgarctl` (CLI/TUI menu), `lorgard` (IPC daemon) |
+
+> **Coverage vs. live validation:** percentages above measure reverse-engineered
+> firmware packets/registers, not end-to-end live proof. Kernel query-transport
+> behavior, reconnect/suspend/resume, `c600` vs `c601`, and multi-kernel DKMS
+> reboot still require a hardware live session (see
+> [`docs/AI_FULL_IMPROVEMENT_PLAN.md`](docs/AI_FULL_IMPROVEMENT_PLAN.md) P0-1…P0-4
+> and Definition of Done). Component versions are tracked in
+> [`VERSIONS.md`](VERSIONS.md); Rust `0.1.0` and kernel `2.3.4` are independent lines.
 
 ---
 
@@ -220,6 +242,18 @@ lorgarctl completions zsh > ~/.zfunc/_lorgarctl
 lorgarctl completions fish > ~/.config/fish/completions/lorgarctl.fish
 ```
 
+Or generate all shells at once (no install needed):
+
+```bash
+bash tools/generate-completions.sh target/completions
+```
+
+Lean build without the legacy tray (avoids the `ksni`/clap-v2 duplicate tree):
+
+```bash
+cargo build -p lorgarctl --no-default-features --locked
+```
+
 ---
 
 ## Background Daemon (`lorgard`)
@@ -240,6 +274,20 @@ systemctl --user enable --now lorgard.service
 ```bash
 systemctl --user status lorgard.service
 lorgarctl --daemon status
+```
+
+> **Single HID owner:** `lorgard`, `lorgarctl tray`, and `lorgarctl upower`
+> each open HID directly. Enable only one of
+> `lorgard.service` / `lorgarctl-tray.service` / `lorgarctl-upower.service`
+> at a time (units now declare `Conflicts=`). Use `lorgarctl --daemon ...`
+> while `lorgard` runs; direct mode returns busy by design.
+
+### Uninstall (user services + binaries):
+
+```bash
+systemctl --user disable --now lorgard.service lorgarctl-tray.service lorgarctl-upower.service
+rm -f ~/.config/systemd/user/lorgard.service ~/.local/bin/lorgarctl ~/.local/bin/lorgard
+systemctl --user daemon-reload
 ```
 
 ---

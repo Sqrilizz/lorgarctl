@@ -365,7 +365,7 @@ fn execute(cli: &Cli, command: Command) -> Result<()> {
             writeln!(
                 std::io::stdout().lock(),
                 "Report: {}",
-                crate::format_hex_bytes(&packet.report())
+                crate::hex::format_hex_bytes(&packet.report())
             )?;
         }
         return Ok(());
@@ -516,7 +516,7 @@ fn event_output(event: &TimedEvent, as_json: bool) -> Result<()> {
         } => format!(
             "{} {direction:?} {} {:?}",
             device.path,
-            crate::format_hex_bytes(raw),
+            crate::hex::format_hex_bytes(raw),
             parsed.as_ref().map(|p| &p.event)
         ),
     };
@@ -845,7 +845,7 @@ fn status(cli: &Cli, battery_only: bool) -> Result<()> {
                         out,
                         "  {:<14} {}",
                         "Raw:".dimmed(),
-                        crate::format_hex_bytes(raw)
+                        crate::hex::format_hex_bytes(raw)
                     )?;
                 }
             }
@@ -1430,7 +1430,7 @@ mod tests {
     }
     #[test]
     fn unicode_hex_never_panics() {
-        assert!(crate::parse_hex_payload(&["€€".into()]).is_err());
+        assert!(crate::hex::parse_hex_payload(&["€€".into()]).is_err());
         assert!(lorgar_core::parse_hex_color("€€").is_err());
         assert!(lorgar_core::protocol::InputPacket::parse(&[]).is_err());
     }

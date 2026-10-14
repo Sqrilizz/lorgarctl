@@ -25,6 +25,8 @@ jobs:
             libdbus-1-dev \
             libglib2.0-dev \
             libudev-dev \
+            libhidapi-dev \
+            shellcheck \
             udev
 
       - name: Set up Rust toolchain
@@ -41,8 +43,20 @@ jobs:
       - name: Run Clippy linter
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
+      - name: Check component version sync
+        run: bash tools/check-versions.sh
+
+      - name: Check for duplicate dependency trees
+        run: cargo tree -d --locked
+
       - name: Validate udev rules
         run: udevadm verify udev/*.rules
 
       - name: Validate shell scripts syntax
         run: bash -n kernel/*.sh tools/*.sh
+
+      - name: Shellcheck scripts
+        run: shellcheck kernel/install-dkms.sh kernel/reload.sh kernel/verify-live.sh tools/check.sh tools/check-versions.sh tools/probe-state.sh
+
+      - name: Reject whitespace errors
+        run: git diff --check

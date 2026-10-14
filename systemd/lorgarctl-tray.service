@@ -1,6 +1,11 @@
 [Unit]
 Description=LORGAR MSA10W System Tray Daemon
+Documentation=file:%h/Documents/ZZZZ/docs/control-stack.md
 After=graphical-session.target
+# Legacy direct-HID owner: conflicts with lorgard (single HID owner rule).
+Conflicts=lorgard.service lorgarctl-upower.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 ExecStart=%h/.local/bin/lorgarctl tray

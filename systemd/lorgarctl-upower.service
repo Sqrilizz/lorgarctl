@@ -1,6 +1,11 @@
 [Unit]
 Description=LORGAR MSA10W UPower Battery Daemon
+Documentation=file:%h/Documents/ZZZZ/docs/control-stack.md
 After=graphical-session.target
+# Legacy direct-HID owner: conflicts with lorgard and tray.
+Conflicts=lorgard.service lorgarctl-tray.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple

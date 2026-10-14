@@ -6,6 +6,10 @@ authors.workspace = true
 license.workspace = true
 description = "CLI tool for configuring LORGAR MSA10W mouse on Linux"
 
+# NOTE: `tray` (ksni 0.2) pulls a duplicate legacy tree (clap v2,
+# bitflags v1, thiserror v1) alongside the modern workspace deps.
+# Kept on by default for compatibility; lean builds should use:
+#   cargo build -p lorgarctl --no-default-features
 [features]
 default = ["tray"]
 tray = ["dep:ksni"]

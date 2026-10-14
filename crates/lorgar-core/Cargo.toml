@@ -13,6 +13,8 @@ log = "0.4"
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Runtime use (not dev-only): atomic config writes in storage.rs and
+# bounded xprop capture in foreground.rs.
 tempfile = "3"
 fs2 = "0.4"
 ctrlc = { version = "3", features = ["termination"] }
