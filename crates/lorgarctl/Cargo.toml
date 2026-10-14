@@ -6,13 +6,17 @@ authors.workspace = true
 license.workspace = true
 description = "CLI tool for configuring LORGAR MSA10W mouse on Linux"
 
+[features]
+default = ["tray"]
+tray = ["dep:ksni"]
+
 [dependencies]
 lorgar-core = { path = "../lorgar-core" }
 clap = { version = "4.5", features = ["derive"] }
 env_logger = "0.11"
 log = "0.4"
 colored = "3.0"
-ksni = "0.2"
+ksni = { version = "0.2", optional = true }
 serde_json = "1"
 serde = "1"
 clap_complete = "4"

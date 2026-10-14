@@ -358,10 +358,11 @@ fn status(cli: &Cli, battery_only: bool) -> Result<()> {
         let device = crate::open_device(cli.device.as_deref(), false)?;
         let raw = device.query_device_state()?;
         let battery = lorgar_core::parse_battery_percentage(&raw)?;
+        let stage = lorgar_core::protocol::parse_active_dpi_stage(&raw).ok();
         (
             Some(device.info().clone()),
             Some(battery),
-            None,
+            stage,
             Some(monitor::timestamp_ms()),
             Some(raw),
             None,
@@ -442,7 +443,16 @@ fn status(cli: &Cli, battery_only: bool) -> Result<()> {
                 "Last applied profile: {}",
                 applied_profile.as_deref().unwrap_or("none")
             )?;
-            writeln!(out, "Charging, polling and lighting readback: unknown")?;
+            let lighting_readback = raw.as_ref().and_then(|r| {
+                lorgar_core::protocol::parse_lighting_mode_readback(r)
+                    .ok()
+                    .flatten()
+            });
+            if let Some(mode) = lighting_readback {
+                writeln!(out, "Active lighting mode: {:?}", mode)?;
+            } else {
+                writeln!(out, "Charging, polling and lighting readback: unknown")?;
+            }
             if let Some(error) = &error {
                 writeln!(out, "Last error: {error}")?;
             }
@@ -514,18 +524,28 @@ fn control(cli: &Cli) -> Result<()> {
                     dpi: *dpi,
                 },
                 Some(DpiCommands::Active { stage }) => Command::SetActiveStage { stage: *stage },
-                None => match (stage, dpi) {
-                    (Some(stage), Some(dpi)) => Command::SetDpi {
+                Some(DpiCommands::Color { stage, hex }) => {
+                    let (red, green, blue) = lorgar_core::parse_hex_color(hex)?;
+                    Command::SetStageColor {
                         stage: *stage,
-                        dpi: *dpi,
-                    },
-                    (Some(stage), None) => Command::SetActiveStage { stage: *stage },
-                    _ => {
-                        return Err(LorgarError::Config(
-                            "specify dpi set STAGE DPI or dpi active STAGE".into(),
-                        ))
+                        red,
+                        green,
+                        blue,
                     }
-                },
+                }
+                None => {
+                    match (stage, dpi) {
+                        (Some(stage), Some(dpi)) => Command::SetDpi {
+                            stage: *stage,
+                            dpi: *dpi,
+                        },
+                        (Some(stage), None) => Command::SetActiveStage { stage: *stage },
+                        _ => return Err(LorgarError::Config(
+                            "specify dpi set STAGE DPI, dpi active STAGE, or dpi color STAGE HEX"
+                                .into(),
+                        )),
+                    }
+                }
             };
             execute(cli, command)
         }
