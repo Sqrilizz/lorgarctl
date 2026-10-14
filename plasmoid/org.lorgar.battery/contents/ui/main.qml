@@ -19,9 +19,21 @@ PlasmoidItem {
 
         onNewData: function(sourceName, data) {
             if (data["exit code"] === 0 && data.stdout) {
-                var out = data.stdout.trim();
-                if (out.length > 0) {
-                    root.batteryText = out.replace("🖱️", "").trim();
+                try {
+                    var parsed = JSON.parse(data.stdout);
+                    if (parsed.percentage !== undefined && parsed.percentage !== null) {
+                        root.batteryText = parsed.percentage + "%";
+                    } else if (parsed.text) {
+                        root.batteryText = parsed.text;
+                    } else {
+                        root.batteryText = "Unknown";
+                    }
+                    if (parsed.tooltip) {
+                        root.Plasmoid.toolTipSubText = parsed.tooltip;
+                    }
+                } catch (e) {
+                    var out = data.stdout.trim();
+                    root.batteryText = out.length > 0 ? out.replace("🖱️", "").trim() : "Unknown";
                 }
             } else {
                 root.batteryText = "Unavailable";
@@ -30,7 +42,7 @@ PlasmoidItem {
         }
 
         function updateBattery() {
-            connectSource("lorgarctl --daemon battery --short");
+            connectSource("lorgarctl --daemon battery --json");
         }
     }
 

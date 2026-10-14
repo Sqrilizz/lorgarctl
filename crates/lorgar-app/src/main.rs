@@ -12,6 +12,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Parser)]
 #[command(version, about = "Native Linux settings for the LORGAR MSA10W")]
@@ -251,6 +252,30 @@ impl Ui {
             "Sensitivity",
             "Include the stages you want to change. Unchecked stages stay untouched.",
         ));
+        sensitivity.append(&label(
+            "Quick starting points · choose a set, then adjust any stage",
+            "eyebrow",
+        ));
+        let presets = row(10);
+        let preset_buttons = [
+            ("FPS · 400–3200", [400, 800, 1600, 3200]),
+            ("Balanced · 800–6400", [800, 1600, 3200, 6400]),
+            ("High · 1600–12000", [1600, 3200, 6400, 12000]),
+        ];
+        let mut preset_actions = Vec::new();
+        for (title, values) in preset_buttons {
+            let preset = button(title, "secondary");
+            preset.set_hexpand(true);
+            presets.append(&preset);
+            preset_actions.push((preset, values));
+        }
+        sensitivity.append(&presets);
+        let preset_note = label(
+            "A preset changes this draft only: it sets stages 0–3, selects stage 0, and leaves polling and lighting alone. Apply to mouse when ready.",
+            "small",
+        );
+        preset_note.set_wrap(true);
+        sensitivity.append(&preset_note);
         let dpi_grid = gtk::Grid::builder()
             .row_spacing(12)
             .column_spacing(12)
@@ -316,6 +341,7 @@ impl Ui {
         let lighting_card = card();
         let lighting = gtk::DropDown::from_strings(&[
             "Leave unchanged",
+            "Off",
             "Static",
             "Breathing",
             "Color cycle",
@@ -503,6 +529,9 @@ impl Ui {
             ui.connection.set_text("Connecting…");
         });
         Self::clicked(&ui, &customize, |ui| ui.navigate(1));
+        for (preset, values) in preset_actions {
+            Self::clicked(&ui, &preset, move |ui| ui.set_dpi_preset(values));
+        }
         for (swatch, hex) in swatch_buttons {
             Self::clicked(&ui, &swatch, move |ui| {
                 ui.use_color.set_active(true);
@@ -542,6 +571,23 @@ impl Ui {
         }
     }
 
+    fn set_dpi_preset(&self, values: [u16; 4]) {
+        for (index, (included, spin)) in self.dpi.iter().enumerate() {
+            let value = values.get(index).copied();
+            included.set_active(value.is_some());
+            spin.set_sensitive(value.is_some());
+            if let Some(value) = value {
+                spin.set_value(value as f64);
+            }
+        }
+        self.stage.set_selected(1);
+        self.changed();
+        self.message(
+            "Preset added to the draft. Apply to mouse when ready.",
+            false,
+        );
+    }
+
     fn message(&self, text: &str, error: bool) {
         self.feedback.set_text(text);
         if error {
@@ -568,6 +614,7 @@ impl Ui {
             .flatten();
         profile.rgb = [
             None,
+            Some(LightingMode::Off),
             Some(LightingMode::Static),
             Some(LightingMode::Breathing),
             Some(LightingMode::ColorCycle),
@@ -708,11 +755,12 @@ impl Ui {
             _ => 0,
         });
         self.lighting.set_selected(match profile.rgb {
-            Some(LightingMode::Static) => 1,
-            Some(LightingMode::Breathing) => 2,
-            Some(LightingMode::ColorCycle) => 3,
-            Some(LightingMode::Tapping) => 4,
-            Some(LightingMode::Wave) => 5,
+            Some(LightingMode::Off) => 1,
+            Some(LightingMode::Static) => 2,
+            Some(LightingMode::Breathing) => 3,
+            Some(LightingMode::ColorCycle) => 4,
+            Some(LightingMode::Tapping) => 5,
+            Some(LightingMode::Wave) => 6,
             None => 0,
         });
         self.use_color.set_active(profile.color.is_some());
@@ -1085,11 +1133,13 @@ impl Ui {
                 Ok(response) => {
                     let state = response.state.unwrap_or_default();
                     self.model.borrow_mut().connected = state.device.is_some();
-                    self.connection.set_text(if state.device.is_some() {
-                        "Device available"
-                    } else {
-                        "Not connected"
-                    });
+                    let (connection, detail) = connection_copy(
+                        state.device.is_some(),
+                        state.battery_observed_ms,
+                        state.last_error.as_deref(),
+                        unix_time_ms(),
+                    );
+                    self.connection.set_text(&connection);
                     self.battery.set_text(
                         &state
                             .battery_percentage
@@ -1104,7 +1154,7 @@ impl Ui {
                     );
                     self.applied
                         .set_text(state.applied_profile.as_deref().unwrap_or("None"));
-                    self.connection_detail.set_text(state.last_error.as_deref().unwrap_or(if state.device.is_some() { "Connected to lorgard. Your profiles are stored locally." } else { "Connect your mouse or receiver. Profiles can still be edited while offline." }));
+                    self.connection_detail.set_text(&detail);
                 }
                 Err(error) => {
                     self.model.borrow_mut().connected = false;
@@ -1117,6 +1167,52 @@ impl Ui {
             },
         }
         self.refresh_actions();
+    }
+}
+
+fn unix_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn connection_copy(
+    device_present: bool,
+    battery_observed_ms: Option<u64>,
+    last_error: Option<&str>,
+    now_ms: u64,
+) -> (String, String) {
+    if !device_present {
+        return (
+            "Not connected".into(),
+            last_error
+                .unwrap_or(
+                    "Connect your mouse or receiver. Profiles can still be edited while offline.",
+                )
+                .into(),
+        );
+    }
+    if let Some(error) = last_error {
+        return ("Receiver available".into(), error.into());
+    }
+    match battery_observed_ms {
+        Some(observed) => {
+            let age = now_ms.saturating_sub(observed) / 1000;
+            let heading = if age <= 120 {
+                "State response fresh"
+            } else {
+                "State response stale"
+            };
+            (
+                heading.into(),
+                format!("Battery state received {age}s ago."),
+            )
+        }
+        None => (
+            "Receiver available".into(),
+            "Waiting for the first state response from the mouse.".into(),
+        ),
     }
 }
 
@@ -1229,6 +1325,27 @@ fn main() -> glib::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn connection_copy_separates_receiver_and_state_health() {
+        assert_eq!(
+            connection_copy(true, None, None, 10).0,
+            "Receiver available"
+        );
+        assert_eq!(
+            connection_copy(true, Some(1_000), None, 2_000).0,
+            "State response fresh"
+        );
+        assert_eq!(
+            connection_copy(true, Some(1_000), None, 130_000).0,
+            "State response stale"
+        );
+        assert_eq!(
+            connection_copy(true, Some(1_000), Some("query timed out"), 2_000).0,
+            "Receiver available"
+        );
+        assert_eq!(connection_copy(false, None, None, 0).0, "Not connected");
+    }
 
     #[test]
     #[ignore = "requires a display; run with xvfb-run -a cargo test -p lorgar-app ui_smoke -- --ignored"]
