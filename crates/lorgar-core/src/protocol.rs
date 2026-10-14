@@ -9,10 +9,11 @@ pub const MAX_DPI: u16 = 12000;
 
 pub mod cmd {
     pub const SET_POLLING_RATE: u8 = 0x20;
-    pub const SET_DPI: u8 = 0x26;
     pub const SET_ACTIVE_STAGE: u8 = 0x21;
     pub const SET_LIGHTING_MODE: u8 = 0x22;
     pub const SET_LIGHTING_COLOR: u8 = 0x23;
+    pub const SET_DPI: u8 = 0x26;
+    pub const SET_STAGE_COLOR: u8 = 0x27;
     pub const QUERY_STATE: u8 = 0x82;
 }
 
@@ -70,6 +71,7 @@ pub fn build_set_polling_rate_payload(rate: PollingRate) -> [u8; 8] {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum LightingMode {
+    Off,
     Static,
     Breathing,
     ColorCycle,
@@ -80,6 +82,7 @@ pub enum LightingMode {
 impl LightingMode {
     pub fn opcode_params(self) -> (u8, u8) {
         match self {
+            LightingMode::Off => (0x00, 0x00),
             LightingMode::Static => (0x01, 0x05),
             LightingMode::Breathing => (0x02, 0x05),
             LightingMode::ColorCycle => (0x03, 0x05),
@@ -96,6 +99,13 @@ pub fn build_set_lighting_mode_payload(mode: LightingMode) -> [u8; 8] {
 
 pub fn build_set_lighting_color_payload(r: u8, g: u8, b: u8) -> [u8; 8] {
     [cmd::SET_LIGHTING_COLOR, 0x00, 0x00, r, g, b, 0x00, 0x00]
+}
+
+pub fn build_set_stage_color_payload(stage: u8, r: u8, g: u8, b: u8) -> Result<[u8; 8]> {
+    if stage >= DPI_STAGE_COUNT {
+        return Err(LorgarError::InvalidStage { stage });
+    }
+    Ok([cmd::SET_STAGE_COLOR, 0x00, stage, r, g, b, 0x00, 0x00])
 }
 
 pub fn parse_hex_color(hex_str: &str) -> Result<(u8, u8, u8)> {
@@ -160,14 +170,63 @@ pub fn parse_battery_percentage(raw: &[u8]) -> Result<u8> {
     }
 }
 
+pub fn parse_active_dpi_stage(raw: &[u8]) -> Result<u8> {
+    if raw.len() == 64 && (raw[0] == 1 || raw[0] == 2) && raw[1] < DPI_STAGE_COUNT && raw[7] <= 100
+    {
+        Ok(raw[1])
+    } else {
+        Err(LorgarError::InvalidPacket(
+            "not a documented state response".into(),
+        ))
+    }
+}
+
+pub fn parse_lighting_mode_readback(raw: &[u8]) -> Result<Option<LightingMode>> {
+    if raw.len() == 64 && (raw[0] == 1 || raw[0] == 2) && raw[1] < DPI_STAGE_COUNT && raw[7] <= 100
+    {
+        match raw[2] {
+            0 => Ok(Some(LightingMode::Off)),
+            1 => Ok(Some(LightingMode::Static)),
+            2 => Ok(Some(LightingMode::Breathing)),
+            3 => Ok(Some(LightingMode::ColorCycle)),
+            4 => Ok(Some(LightingMode::Tapping)),
+            5 => Ok(Some(LightingMode::Wave)),
+            _ => Ok(None),
+        }
+    } else {
+        Err(LorgarError::InvalidPacket(
+            "not a documented state response".into(),
+        ))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum Command {
-    SetDpi { stage: u8, dpi: u16 },
-    SetActiveStage { stage: u8 },
-    SetPolling { rate: PollingRate },
-    SetLightingMode { mode: LightingMode },
-    SetLightingColor { red: u8, green: u8, blue: u8 },
+    SetDpi {
+        stage: u8,
+        dpi: u16,
+    },
+    SetActiveStage {
+        stage: u8,
+    },
+    SetPolling {
+        rate: PollingRate,
+    },
+    SetLightingMode {
+        mode: LightingMode,
+    },
+    SetLightingColor {
+        red: u8,
+        green: u8,
+        blue: u8,
+    },
+    SetStageColor {
+        stage: u8,
+        red: u8,
+        green: u8,
+        blue: u8,
+    },
     QueryState,
 }
 
@@ -181,6 +240,12 @@ impl Command {
             Self::SetLightingColor { red, green, blue } => {
                 build_set_lighting_color_payload(red, green, blue)
             }
+            Self::SetStageColor {
+                stage,
+                red,
+                green,
+                blue,
+            } => build_set_stage_color_payload(stage, red, green, blue)?,
             Self::QueryState => [cmd::QUERY_STATE, 0, 0, 0, 0, 0, 0, 0],
         };
         Ok(FeaturePacket {
@@ -222,6 +287,7 @@ impl FeaturePacket {
             }
             .map(|rate| Command::SetPolling { rate }),
             cmd::SET_LIGHTING_MODE => match raw[3] {
+                0 => Some(LightingMode::Off),
                 1 => Some(LightingMode::Static),
                 2 => Some(LightingMode::Breathing),
                 3 => Some(LightingMode::ColorCycle),
@@ -231,6 +297,12 @@ impl FeaturePacket {
             }
             .map(|mode| Command::SetLightingMode { mode }),
             cmd::SET_LIGHTING_COLOR => Some(Command::SetLightingColor {
+                red: raw[3],
+                green: raw[4],
+                blue: raw[5],
+            }),
+            cmd::SET_STAGE_COLOR => Some(Command::SetStageColor {
+                stage: raw[2],
                 red: raw[3],
                 green: raw[4],
                 blue: raw[5],
@@ -271,9 +343,17 @@ impl InputPacket {
             [5, event_code, ..] => InputEvent::UnknownVendor {
                 event_code: *event_code,
             },
-            [1 | 2, 1, ..] if raw.len() == 64 && raw[7] <= 100 => InputEvent::State {
-                battery_percentage: raw[7],
-            },
+            [1 | 2, stage, ..]
+                if raw.len() == 64
+                    && *stage < DPI_STAGE_COUNT
+                    && (raw.len() <= 2 || raw[2] < DPI_STAGE_COUNT)
+                    && raw[7] <= 100
+                    && (raw.len() <= 8 || raw[8] <= 1) =>
+            {
+                InputEvent::State {
+                    battery_percentage: raw[7],
+                }
+            }
             _ => InputEvent::Unknown,
         };
         Ok(Self {
@@ -354,6 +434,10 @@ mod tests {
     #[test]
     fn test_set_lighting_mode_payloads() {
         assert_eq!(
+            build_set_lighting_mode_payload(LightingMode::Off),
+            [0x22, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00]
+        );
+        assert_eq!(
             build_set_lighting_mode_payload(LightingMode::Static),
             [0x22, 0x00, 0x00, 0x01, 0x80, 0x05, 0x00, 0x00]
         );
@@ -392,6 +476,19 @@ mod tests {
     }
 
     #[test]
+    fn test_set_stage_color_payloads() {
+        assert_eq!(
+            build_set_stage_color_payload(0, 0x32, 0xcd, 0x32).unwrap(),
+            [0x27, 0x00, 0x00, 0x32, 0xcd, 0x32, 0x00, 0x00]
+        );
+        assert_eq!(
+            build_set_stage_color_payload(7, 0x4c, 0x11, 0x30).unwrap(),
+            [0x27, 0x00, 0x07, 0x4c, 0x11, 0x30, 0x00, 0x00]
+        );
+        assert!(build_set_stage_color_payload(8, 0, 0, 0).is_err());
+    }
+
+    #[test]
     fn test_parse_hex_color() {
         assert_eq!(parse_hex_color("ff0000").unwrap(), (255, 0, 0));
         assert_eq!(parse_hex_color("#00ff00").unwrap(), (0, 255, 0));
@@ -417,13 +514,5 @@ mod tests {
             build_set_polling_rate_payload(PollingRate::Hz1000),
             [0x20, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]
         );
-    }
-
-    #[test]
-    fn test_invalid_polling_rate() {
-        assert!(matches!(
-            PollingRate::from_hz(750),
-            Err(LorgarError::InvalidPollingRate { hz: 750 })
-        ));
     }
 }

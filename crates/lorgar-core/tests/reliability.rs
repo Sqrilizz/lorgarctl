@@ -36,6 +36,12 @@ fn state_v2(percentage: u8) -> Vec<u8> {
     raw
 }
 
+fn state_low_battery(percentage: u8) -> Vec<u8> {
+    let mut raw = vec![0; 64];
+    raw[..9].copy_from_slice(&[2, 0, 3, 0x80, 1, 0, 0, percentage, 1]);
+    raw
+}
+
 #[test]
 fn all_documented_commands_roundtrip_and_report_ids() {
     let mut commands = Vec::new();
@@ -54,6 +60,7 @@ fn all_documented_commands_roundtrip_and_report_ids() {
         commands.push(Command::SetPolling { rate });
     }
     for mode in [
+        LightingMode::Off,
         LightingMode::Static,
         LightingMode::Breathing,
         LightingMode::ColorCycle,
@@ -61,6 +68,14 @@ fn all_documented_commands_roundtrip_and_report_ids() {
         LightingMode::Wave,
     ] {
         commands.push(Command::SetLightingMode { mode });
+    }
+    for stage in 0..8 {
+        commands.push(Command::SetStageColor {
+            stage,
+            red: 0xaa,
+            green: 0xbb,
+            blue: 0xcc,
+        });
     }
     commands.extend([
         Command::SetLightingColor {
@@ -104,7 +119,7 @@ fn unknown_fields_and_malformed_reports_remain_lossless() {
         Some(5)
     );
     for raw in [
-        [0x27, 0, 1, 255, 0, 0, 0, 0],
+        [0x27, 9, 1, 255, 0, 0, 0, 0],
         [0x20, 9, 0, 1, 0, 0, 0, 0],
         [0x21, 0, 0, 255, 0, 0, 0, 0],
     ] {
@@ -140,6 +155,40 @@ fn unknown_fields_and_malformed_reports_remain_lossless() {
         InputEvent::State {
             battery_percentage: 82
         }
+    );
+    assert_eq!(
+        InputPacket::parse(&state_low_battery(4)).unwrap().event,
+        InputEvent::State {
+            battery_percentage: 4
+        }
+    );
+    let mut malformed_low_battery = state_low_battery(4);
+    malformed_low_battery[8] = 0;
+    assert_eq!(
+        InputPacket::parse(&malformed_low_battery).unwrap().event,
+        InputEvent::State {
+            battery_percentage: 4
+        }
+    );
+    malformed_low_battery[8] = 2;
+    assert_eq!(
+        InputPacket::parse(&malformed_low_battery).unwrap().event,
+        InputEvent::Unknown
+    );
+    let mut state_stage_1 = state_low_battery(95);
+    state_stage_1[2] = 1;
+    state_stage_1[8] = 0;
+    assert_eq!(
+        InputPacket::parse(&state_stage_1).unwrap().event,
+        InputEvent::State {
+            battery_percentage: 95
+        }
+    );
+    let mut invalid_stage = state_low_battery(95);
+    invalid_stage[2] = 8;
+    assert_eq!(
+        InputPacket::parse(&invalid_stage).unwrap().event,
+        InputEvent::Unknown
     );
     assert!(lorgar_core::parse_battery_percentage(&state(101)).is_err());
     assert!(lorgar_core::parse_battery_percentage(&state(85)[..8]).is_err());
@@ -193,9 +242,9 @@ fn mock_device_does_not_infer_charging_or_undocumented_settings() {
     let status = device.get_status().unwrap();
     assert_eq!(status.battery_percentage, 85);
     assert_eq!(status.is_charging, None);
-    assert_eq!(status.active_stage, None);
+    assert_eq!(status.active_stage, Some(1));
     assert_eq!(status.polling_rate, None);
-    assert_eq!(status.lighting_mode, None);
+    assert_eq!(status.lighting_mode, Some(LightingMode::Wave));
     assert_eq!(&status.raw_response[..], state(85));
 }
 
@@ -354,4 +403,36 @@ fn invalid_profile_never_writes_and_partial_apply_is_reported() {
         .to_string()
         .contains("earlier writes may have applied"));
     assert_eq!(monitor.state.applied_profile, None);
+}
+
+#[test]
+fn dropped_state_request_is_retried_and_transport_errors_are_not() {
+    let mut calls = 0;
+    let recovered = lorgar_core::with_query_retries(|| {
+        calls += 1;
+        if calls < 3 {
+            Err(LorgarError::Timeout)
+        } else {
+            Ok(state(46))
+        }
+    })
+    .unwrap();
+    assert_eq!(calls, 3);
+    assert_eq!(&recovered[..], &state(46)[..]);
+
+    let mut calls = 0;
+    let exhausted = lorgar_core::with_query_retries(|| {
+        calls += 1;
+        Err(LorgarError::Timeout)
+    });
+    assert!(matches!(exhausted, Err(LorgarError::Timeout)));
+    assert_eq!(calls, 3);
+
+    let mut calls = 0;
+    let unplugged = lorgar_core::with_query_retries(|| {
+        calls += 1;
+        Err(LorgarError::Transport("unplugged".into()))
+    });
+    assert!(matches!(unplugged, Err(LorgarError::Transport(_))));
+    assert_eq!(calls, 1);
 }

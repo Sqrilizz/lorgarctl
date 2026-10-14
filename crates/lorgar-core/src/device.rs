@@ -1,8 +1,8 @@
 use crate::error::{LorgarError, Result};
 use crate::protocol::{
     build_set_active_stage_payload, build_set_dpi_payload, build_set_lighting_color_payload,
-    build_set_lighting_mode_payload, build_set_polling_rate_payload, LightingMode, PollingRate,
-    CONFIG_USAGE_PAGE, PRODUCT_IDS, VENDOR_ID,
+    build_set_lighting_mode_payload, build_set_polling_rate_payload, build_set_stage_color_payload,
+    LightingMode, PollingRate, CONFIG_USAGE_PAGE, PRODUCT_IDS, VENDOR_ID,
 };
 use crate::transport::{DeviceLock, HidTransport, HidapiTransport};
 use hidapi::HidApi;
@@ -214,6 +214,12 @@ impl Msa10w {
         Ok(payload)
     }
 
+    pub fn set_stage_color(&self, stage: u8, r: u8, g: u8, b: u8) -> Result<[u8; 8]> {
+        let payload = build_set_stage_color_payload(stage, r, g, b)?;
+        self.transport.send_feature_command(&payload)?;
+        Ok(payload)
+    }
+
     pub fn send_raw_feature(&self, payload: &[u8; 8]) -> Result<()> {
         self.transport.send_feature_command(payload)
     }
@@ -257,7 +263,11 @@ impl Msa10w {
         }
 
         let battery_percentage = crate::protocol::parse_battery_percentage(&raw)?;
-        let (active_stage, is_charging, lighting_mode, polling_rate) = (None, None, None, None);
+        let active_stage = crate::protocol::parse_active_dpi_stage(&raw).ok();
+        let lighting_mode = crate::protocol::parse_lighting_mode_readback(&raw)
+            .ok()
+            .flatten();
+        let (is_charging, polling_rate) = (None, None);
 
         let mut raw_response = [0u8; 64];
         let len = raw.len().min(64);
