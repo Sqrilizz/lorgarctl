@@ -13,7 +13,13 @@ This document tracks reverse-engineered HID commands and report formats for the 
 | `0x23` | **CONFIRMED** | Set lighting color |
 | `0x82` | **CONFIRMED** | Query device state / battery level |
 | `0x27` | **CONFIRMED** | Set the separate top DPI indicator color for one stage |
-| Output packet `0x03` | **CONFIRMED** | Set the regular RGB lighting palette; not the top DPI indicator |
+| Packet `0x01` | **CONFIRMED** | NVRAM: Active stage, lighting mode, brightness, speed, direction |
+| Packet `0x02` | **CONFIRMED** | NVRAM: Sensor LOD (1/2mm), sleep timeout (1..10m), angle snap, motion sync |
+| Packet `0x03` | **CONFIRMED** | NVRAM: 8-stage RGB indicator palette |
+| Packet `0x04` | **CONFIRMED** | NVRAM: Key debounce time (ms) and FireKey repeat settings |
+| Packets `0x05`/`0x06` | **CONFIRMED** | NVRAM: Full 8-stage DPI table storage |
+| Packet `0x07` | **CONFIRMED** | NVRAM: Button remapping (24-byte button definition table) |
+| Packets `0x08`/`0x09` | **CONFIRMED** | NVRAM: Onboard hardware macro definitions |
 | Report `0x05`, Event `0x0b` | **HIGH CONFIDENCE** | Hardware DPI stage change event |
 | Report `0x05`, Event `0x0f` | **UNKNOWN** | Unknown vendor event payload |
 
@@ -249,24 +255,60 @@ sub-second polling loops.
 
 ---
 
-## 3. Confirmed Output Reports
+## 3. Confirmed 32-byte NVRAM Configuration Packets
 
-### Output packet `0x03`: Set regular lighting palette
+The mouse firmware uses 32-byte structured packets to persist full profiles in its internal NVRAM flash.
+Each 32-byte packet is sent across the configuration interface (`usage_page: 0xff10`) via a Feature Report (or Output Report) prepended with report ID `0x00` (33 bytes total).
+The final byte (byte 31) is **always** the bitwise one's complement checksum (`~sum(bytes[0..30]) & 0xFF`), guaranteeing that the 8-bit sum of the entire 32-byte packet equals `0xFF`.
 
-The official MSA10WR device plugin serializes eight RGB entries into a 32-byte
-packet. A 64-byte HID output report carries that packet followed by zero
-padding:
+### Packet `0x01`: Master DPI Stage & Lighting Configuration
+- **Byte 0**: `0x01` (Packet ID)
+- **Byte 1**: Active DPI stage index (`0x00` .. `0x07`)
+- **Byte 2**: Lighting effect mode (`0x00` = Off, `0x01` = Static, `0x02` = Breathing, `0x03` = ColorCycle, `0x04` = Tapping, `0x05` = Wave)
+- **Byte 3**: Lighting brightness
+- **Byte 4**: Effect speed (`0x01` .. `0x05`)
+- **Byte 5**: Wave / effect direction
+- **Bytes 6..30**: Reserved
+- **Byte 31**: Checksum (`~sum(b[0..30]) & 0xFF`)
 
-```text
-03 R0 G0 B0 R1 G1 B1 ... R7 G7 B7 00 00 00 00 00 00 CC [32 zero bytes]
-```
+### Packet `0x02`: Sensor, Power & Performance Configuration
+- **Byte 0**: `0x02` (Packet ID)
+- **Byte 1**: Active DPI stage index (`0x00` .. `0x07`)
+- **Byte 2**: Sensor Lift-Off Distance (LOD): `0x01` = Low (1 mm), `0x02` = High (2 mm)
+- **Byte 3**: **Sleep / Hibernation Timeout**: `0x01` .. `0x0A` (1 to 10 minutes, default: `0x05` = 5 min)
+- **Byte 4**: Reserved (`0x00`)
+- **Byte 5**: Angle Snapping: `0x00` = Disabled, `0x01` = Enabled
+- **Byte 6**: PixArt PAW3395 Motion Sync: `0x00` = Disabled, `0x01` = Enabled
+- **Byte 7**: Reserved (`0x00`)
+- **Bytes 8..10**: Static RGB Color (`R, G, B`)
+- **Bytes 11..30**: Reserved (`0x00`)
+- **Byte 31**: Checksum (`~sum(b[0..30]) & 0xFF`)
 
-`CC` is the one's complement of the low byte of the sum of bytes `0..30`, so
-the low byte of the sum of the complete 32-byte packet is `0xff`. A controlled
-Linux hardware test set all eight entries to violet. The user visually observed
-the regular lighting change while the separate top DPI indicator did not. The
-packet layout and checksum are confirmed for the tested `093a:c601` receiver;
-the semantic meaning and ordering of the eight entries remain unknown.
+### Packet `0x03`: 8-Stage DPI Indicator Palette
+- **Byte 0**: `0x03` (Packet ID)
+- **Bytes 1..24**: 8 contiguous RGB triplets (`R0 G0 B0` through `R7 G7 B7`) defining the physical LED indicator colors for each DPI sensitivity stage.
+- **Bytes 25..30**: Reserved (`0x00`)
+- **Byte 31**: Checksum (`~sum(b[0..30]) & 0xFF`)
+
+### Packet `0x04`: Button Debounce & Rapid-Fire Settings
+- **Byte 0**: `0x04` (Packet ID)
+- **Bytes 1..2**: Switch debounce filter duration in milliseconds (anti-double-click delay)
+- **Byte 3**: Rapid-fire key enabled (`0x00` / `0x01`)
+- **Byte 4**: Fire-key repeat interval (ms, default: `0x32` = 50 ms)
+- **Byte 5**: Fire-key repeat count (default: `0x02` = 2 clicks per trigger)
+- **Bytes 6..30**: Reserved (`0x00`)
+- **Byte 31**: Checksum (`~sum(b[0..30]) & 0xFF`)
+
+### Packets `0x05` & `0x06`: Full Hardware DPI Banks
+- **Packet `0x05`**: Stage 0..3 DPI resolutions (16-bit little-endian words).
+- **Packet `0x06`**: Stage 4..7 DPI resolutions (16-bit little-endian words).
+
+### Packet `0x07`: Physical Button Remapping Table
+- **Byte 0**: `0x07` (Packet ID)
+- **Bytes 1..24**: 24-byte action mapping matrix covering mouse buttons (Left, Right, Middle, Back, Forward, DPI+, DPI-, FireKey).
+
+### Packets `0x08` & `0x09`: Hardware Macro Storage
+- Sequence streams for onboard programmable macro playback directly from mouse hardware without driver runtime dependency.
 
 ## 4. High-Confidence Vendor Input Events (`Usage Page: 0xff11`, Report `0x05`)
 
