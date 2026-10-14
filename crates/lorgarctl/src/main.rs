@@ -103,6 +103,10 @@ enum Commands {
     },
     #[command(about = "Generate shell completions to stdout")]
     Completions { shell: clap_complete::Shell },
+    /// Interactive terminal menu for quick mouse configuration
+    #[command(alias = "tui", alias = "interactive")]
+    Menu,
+
     /// Show mouse dashboard summary (battery, device info, connection)
     #[command(alias = "info", alias = "hub")]
     Status,
@@ -461,6 +465,7 @@ fn run_app(cli: Cli) -> Result<()> {
     }
     match cli.command {
         Commands::Status
+        | Commands::Menu
         | Commands::Devices
         | Commands::Battery { .. }
         | Commands::Dpi { .. }

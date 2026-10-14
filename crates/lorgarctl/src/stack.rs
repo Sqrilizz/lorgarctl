@@ -738,6 +738,12 @@ fn status(cli: &Cli, battery_only: bool) -> Result<()> {
                 )?;
             }
 
+            let is_sleeping = battery.is_none()
+                && error
+                    .as_deref()
+                    .map(|e| e.contains("timed out"))
+                    .unwrap_or(false);
+
             if let Some(p) = battery {
                 let bar = battery_bar(p);
                 let health = if p > 50 {
@@ -754,6 +760,13 @@ fn status(cli: &Cli, battery_only: bool) -> Result<()> {
                     bar,
                     p,
                     health
+                )?;
+            } else if is_sleeping {
+                writeln!(
+                    out,
+                    "  {:<14} {}",
+                    "Battery:".dimmed(),
+                    "asleep (standby)".yellow()
                 )?;
             } else {
                 writeln!(out, "  {:<14} unknown", "Battery:".dimmed())?;
@@ -798,7 +811,20 @@ fn status(cli: &Cli, battery_only: bool) -> Result<()> {
                 applied_profile.as_deref().unwrap_or("none")
             )?;
 
-            if let Some(error) = &error {
+            if is_sleeping {
+                writeln!(
+                    out,
+                    "  {:<14} {}",
+                    "State:".dimmed(),
+                    "Standby / Sleep (hibernation)".yellow().bold()
+                )?;
+                writeln!(
+                    out,
+                    "  {:<14} {}",
+                    "Notice:".dimmed(),
+                    "Mouse is sleeping to save power. Move mouse or click to wake.".cyan()
+                )?;
+            } else if let Some(error) = &error {
                 writeln!(out, "  {:<14} {}", "Notice:".yellow(), error)?;
             }
             if cli.debug {
@@ -949,8 +975,275 @@ fn color_command(value: &str) -> Result<Command> {
     Ok(Command::SetLightingColor { red, green, blue })
 }
 
+fn run_menu(cli: &Cli) -> Result<()> {
+    use std::io::{stdin, stdout, Write};
+
+    loop {
+        print!("{}[2J{}[1;1H", 27 as char, 27 as char);
+        let mut out = stdout().lock();
+        writeln!(
+            out,
+            "{}",
+            "═══════════════════════════════════════════════════════════".cyan()
+        )?;
+        writeln!(
+            out,
+            "{}",
+            "         LORGAR MSA10W Control Menu (PAW3395)"
+                .bold()
+                .white()
+        )?;
+        writeln!(
+            out,
+            "{}",
+            "═══════════════════════════════════════════════════════════".cyan()
+        )?;
+
+        let daemon_mode = is_daemon_mode(cli);
+        let (info, battery, stage) = if daemon_mode {
+            let state = response(cli, Action::Status).ok().and_then(|r| r.state);
+            (
+                state.as_ref().and_then(|s| s.device.clone()),
+                state.as_ref().and_then(|s| s.battery_percentage),
+                state.as_ref().and_then(|s| s.active_stage),
+            )
+        } else {
+            let dev = crate::open_device(cli.device.as_deref(), false).ok();
+            let raw = dev.as_ref().and_then(|d| d.query_device_state().ok());
+            (
+                dev.as_ref().map(|d| d.info().clone()),
+                raw.as_ref()
+                    .and_then(|r| lorgar_core::parse_battery_percentage(r).ok()),
+                raw.as_ref()
+                    .and_then(|r| lorgar_core::protocol::parse_active_dpi_stage(r).ok()),
+            )
+        };
+
+        if let Some(info) = &info {
+            let conn = if info.product_id == 0xc601 {
+                "2.4 GHz Wireless"
+            } else {
+                "USB Wired"
+            };
+            writeln!(out, "  Device:  {} ({})", info.path.cyan(), conn)?;
+        } else {
+            writeln!(
+                out,
+                "  Device:  {}",
+                "Disconnected / Receiver unplugged".red()
+            )?;
+        }
+
+        if let Some(p) = battery {
+            writeln!(out, "  Battery: {:>3}% [{}]", p, battery_bar(p))?;
+        } else {
+            writeln!(
+                out,
+                "  Battery: {}",
+                "Asleep / Standby (move mouse to wake)".yellow()
+            )?;
+        }
+
+        if let Some(s) = stage {
+            writeln!(out, "  DPI:     Stage {}", s.to_string().cyan().bold())?;
+        } else {
+            writeln!(out, "  DPI:     unknown")?;
+        }
+
+        writeln!(
+            out,
+            "{}",
+            "───────────────────────────────────────────────────────────".dimmed()
+        )?;
+        writeln!(out, "  [1] Switch active DPI stage (0..7)")?;
+        writeln!(out, "  [2] Set custom DPI value for a stage")?;
+        writeln!(out, "  [3] Apply DPI Preset (FPS / Balanced / High)")?;
+        writeln!(out, "  [4] Change Polling Rate (125 / 250 / 500 / 1000 Hz)")?;
+        writeln!(out, "  [5] Change RGB Lighting Mode")?;
+        writeln!(out, "  [6] Set RGB Static Color")?;
+        writeln!(out, "  [7] Power-Saving & Sleep (Hibernation) Info")?;
+        writeln!(out, "  [8] Refresh status")?;
+        writeln!(out, "  [0] Exit")?;
+        writeln!(
+            out,
+            "{}",
+            "───────────────────────────────────────────────────────────".dimmed()
+        )?;
+        write!(out, "Select option: ")?;
+        out.flush()?;
+        drop(out);
+
+        let mut input = String::new();
+        if stdin().read_line(&mut input).is_err() {
+            break;
+        }
+        let choice = input.trim();
+
+        match choice {
+            "0" | "q" | "exit" => {
+                println!("Exiting menu.");
+                break;
+            }
+            "1" => {
+                print!("Enter stage index to activate (0..7): ");
+                stdout().flush()?;
+                let mut buf = String::new();
+                if stdin().read_line(&mut buf).is_ok() {
+                    if let Ok(st) = buf.trim().parse::<u8>() {
+                        if st < 8 {
+                            let _ = execute(cli, Command::SetActiveStage { stage: st });
+                        } else {
+                            println!("{}", "Stage index must be 0..7".red());
+                        }
+                    }
+                }
+                pause_prompt();
+            }
+            "2" => {
+                print!("Enter stage index (0..7): ");
+                stdout().flush()?;
+                let mut buf = String::new();
+                let _ = stdin().read_line(&mut buf);
+                if let Ok(st) = buf.trim().parse::<u8>() {
+                    if st < 8 {
+                        print!("Enter DPI value (100..26000): ");
+                        stdout().flush()?;
+                        let mut dpibuf = String::new();
+                        let _ = stdin().read_line(&mut dpibuf);
+                        if let Ok(dpi) = dpibuf.trim().parse::<u16>() {
+                            let _ = execute(cli, Command::SetDpi { stage: st, dpi });
+                        }
+                    }
+                }
+                pause_prompt();
+            }
+            "3" => {
+                println!("\nAvailable presets:");
+                println!("  [1] FPS Gaming    (400/800/1600/3200, active: 800)");
+                println!("  [2] Balanced      (800/1200/1600/2400, active: 1200)");
+                println!("  [3] High Speed    (1600/2400/3200/6400, active: 3200)");
+                print!("Choose preset [1-3]: ");
+                stdout().flush()?;
+                let mut pbuf = String::new();
+                let _ = stdin().read_line(&mut pbuf);
+                match pbuf.trim() {
+                    "1" | "fps" => {
+                        let _ = apply_dpi_preset(cli, "fps");
+                    }
+                    "2" | "balanced" => {
+                        let _ = apply_dpi_preset(cli, "balanced");
+                    }
+                    "3" | "high" => {
+                        let _ = apply_dpi_preset(cli, "high");
+                    }
+                    _ => println!("{}", "Invalid choice".red()),
+                }
+                pause_prompt();
+            }
+            "4" => {
+                println!("\nSelect Polling Rate:");
+                println!("  [1] 125 Hz   (8 ms latency, maximum battery saving)");
+                println!("  [2] 250 Hz   (4 ms latency)");
+                println!("  [3] 500 Hz   (2 ms latency, balanced)");
+                println!("  [4] 1000 Hz  (1 ms latency, competitive gaming)");
+                print!("Choose rate [1-4]: ");
+                stdout().flush()?;
+                let mut pbuf = String::new();
+                let _ = stdin().read_line(&mut pbuf);
+                let rate = match pbuf.trim() {
+                    "1" | "125" => Some(lorgar_core::PollingRate::Hz125),
+                    "2" | "250" => Some(lorgar_core::PollingRate::Hz250),
+                    "3" | "500" => Some(lorgar_core::PollingRate::Hz500),
+                    "4" | "1000" => Some(lorgar_core::PollingRate::Hz1000),
+                    _ => None,
+                };
+                if let Some(r) = rate {
+                    let _ = execute(cli, Command::SetPolling { rate: r });
+                } else {
+                    println!("{}", "Invalid polling rate choice".red());
+                }
+                pause_prompt();
+            }
+            "5" => {
+                println!("\nSelect Lighting Mode:");
+                println!("  [1] Wave (dynamic rainbow wave)");
+                println!("  [2] Breathing");
+                println!("  [3] Color Cycle");
+                println!("  [4] Tapping (react on click)");
+                println!("  [5] Static (solid color)");
+                println!("  [6] Off (turn off RGB for max battery)");
+                print!("Choose mode [1-6]: ");
+                stdout().flush()?;
+                let mut mbuf = String::new();
+                let _ = stdin().read_line(&mut mbuf);
+                let mode = match mbuf.trim() {
+                    "1" | "wave" => Some(lorgar_core::LightingMode::Wave),
+                    "2" | "breathing" => Some(lorgar_core::LightingMode::Breathing),
+                    "3" | "color-cycle" => Some(lorgar_core::LightingMode::ColorCycle),
+                    "4" | "tapping" => Some(lorgar_core::LightingMode::Tapping),
+                    "5" | "static" => Some(lorgar_core::LightingMode::Static),
+                    "6" | "off" => Some(lorgar_core::LightingMode::Off),
+                    _ => None,
+                };
+                if let Some(m) = mode {
+                    let _ = execute(cli, Command::SetLightingMode { mode: m });
+                } else {
+                    println!("{}", "Invalid lighting mode".red());
+                }
+                pause_prompt();
+            }
+            "6" => {
+                print!("Enter hex color (e.g. #ff5500 or ff0000): ");
+                stdout().flush()?;
+                let mut cbuf = String::new();
+                let _ = stdin().read_line(&mut cbuf);
+                if let Ok(cmd) = color_command(cbuf.trim()) {
+                    let _ = execute(cli, cmd);
+                } else {
+                    println!("{}", "Invalid hex color format".red());
+                }
+                pause_prompt();
+            }
+            "7" => {
+                println!(
+                    "\n{}",
+                    "LORGAR MSA10W Power Saving & Hibernation".bold().white()
+                );
+                println!("  • Sensor: PixArt PAW3395 with multi-stage dynamic power management.");
+                println!(
+                    "  • Light Standby: After ~30s of inactivity, sensor tracking frequency dims."
+                );
+                println!(
+                    "  • Deep Sleep (Hibernation): Shuts off RF transmitter to preserve battery."
+                );
+                println!("    The 2.4 GHz USB receiver remains connected to your PC, but the mouse sleeps.");
+                println!(
+                    "  • Wake-up: Move the mouse or click any button to resume tracking in <50ms."
+                );
+                println!("  • Tip: Set RGB to 'off' or Polling to 500 Hz to extend battery life up to 100+ hours.");
+                pause_prompt();
+            }
+            "8" => {}
+            _ => {
+                println!("{}", "Unknown option".yellow());
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn pause_prompt() {
+    use std::io::{stdin, stdout, Write};
+    print!("\nPress Enter to continue...");
+    let _ = stdout().flush();
+    let mut dummy = String::new();
+    let _ = stdin().read_line(&mut dummy);
+}
+
 pub fn run(cli: &Cli) -> Option<Result<()>> {
     Some(match &cli.command {
+        Commands::Menu => run_menu(cli),
         Commands::Monitor => watch(cli, None),
         Commands::Capture {
             output,
