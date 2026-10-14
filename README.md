@@ -28,7 +28,7 @@ Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wi
 
 ## Status
 
-[![firmware](assets/badge-firmware.svg)](protocol/msa10w.md) [![protocol](assets/badge-protocol.svg)](protocol/msa10w.md) [![driver](assets/badge-driver.svg)](kernel/)
+[![firmware](assets/badge-firmware.svg)](protocol/msa10w.md) [![protocol](assets/badge-protocol.svg)](protocol/msa10w.md) [![driver](assets/badge-driver.svg)](kernel/) [![bootloader](assets/badge-bootloader.svg)](protocol/msa10w.md#8-firmware-architecture-container-format--flashing-protocols-reverse-engineered-via-rea)
 
 [![progress map](assets/status.png)](protocol/msa10w.md)
 

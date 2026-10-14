@@ -153,7 +153,7 @@ def badge(label, value_str, percent=100.0):
 
 
 def main():
-    # Left panel: Firmware NVRAM configuration packets (32 bytes per packet = 288 total confirmed bytes)
+    # Left panel: Firmware NVRAM, Bootloader & Flash Storage
     firmware_groups = [
         {"name": "Pkt 0x01: DPI & LED", "label": "Pkt 0x01 (DPI/RGB)", "done": 32, "todo": 0},
         {"name": "Pkt 0x02: Sensor & Sleep", "label": "Pkt 0x02 (Sensor/Sleep)", "done": 32, "todo": 0},
@@ -164,22 +164,26 @@ def main():
         {"name": "Pkt 0x07: Button Matrix", "label": "Pkt 0x07 (Remap)", "done": 32, "todo": 0},
         {"name": "Pkt 0x08: Macro Bank A", "label": "Pkt 0x08 (Macro A)", "done": 32, "todo": 0},
         {"name": "Pkt 0x09: Macro Bank B", "label": "Pkt 0x09 (Macro B)", "done": 32, "todo": 0},
+        {"name": "Bootloader & Flash (0x08)", "label": "Bootloader (0x08)", "done": 32, "todo": 0},
+        {"name": "FW Container & Checksum", "label": "FW Container", "done": 32, "todo": 0},
     ]
 
-    # Right panel: Hardware protocol commands & Linux driver components
+    # Right panel: Hardware protocol commands, OEM architecture & Linux driver stack
     stack_groups = [
-        {"name": "hid-lorgar (DKMS)", "label": "hid-lorgar", "done": 28, "todo": 0},
-        {"name": "lorgard daemon", "label": "lorgard", "done": 26, "todo": 0},
-        {"name": "lorgarctl & TUI", "label": "lorgarctl", "done": 26, "todo": 0},
+        {"name": "Togran TM271 Platform", "label": "Togran OEM", "done": 24, "todo": 0},
+        {"name": "Dual-Channel HID (EP0/04)", "label": "Dual-Channel HID", "done": 20, "todo": 0},
+        {"name": "hid-lorgar (DKMS)", "label": "hid-lorgar", "done": 26, "todo": 0},
+        {"name": "lorgard daemon", "label": "lorgard", "done": 24, "todo": 0},
+        {"name": "lorgarctl & TUI", "label": "lorgarctl", "done": 24, "todo": 0},
         {"name": "0x20 PollRate", "label": "0x20:Poll", "done": 12, "todo": 0},
         {"name": "0x21 ActiveStage", "label": "0x21:Stage", "done": 12, "todo": 0},
         {"name": "0x26 SetDPI", "label": "0x26:DPI", "done": 12, "todo": 0},
-        {"name": "0x82 StateQuery", "label": "0x82:Query", "done": 16, "todo": 0},
+        {"name": "0x82 StateQuery", "label": "0x82:Query", "done": 14, "todo": 0},
         {"name": "0x22 LightMode", "label": "0x22:Mode", "done": 12, "todo": 0},
         {"name": "0x23 RGBColor", "label": "0x23:RGB", "done": 12, "todo": 0},
         {"name": "0x27 StageColor", "label": "0x27:Palette", "done": 12, "todo": 0},
-        {"name": "0x05 VendorEvents", "label": "0x05:Events", "done": 14, "todo": 0},
-        {"name": "UPower & Plasma", "label": "Plasma/UPower", "done": 16, "todo": 0},
+        {"name": "0x05 VendorEvents", "label": "0x05:Events", "done": 12, "todo": 0},
+        {"name": "UPower & Plasma", "label": "Plasma/UPower", "done": 14, "todo": 0},
     ]
 
     width, height = 2 * PANEL_WIDTH + GAP, HEADER + MAP_HEIGHT
@@ -187,7 +191,7 @@ def main():
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}">',
         rect(0, 0, width, height, BORDER, 0),
     ]
-    parts += treemap("Firmware NVRAM*", firmware_groups, 0)
+    parts += treemap("Firmware & Bootloader*", firmware_groups, 0)
     parts += treemap("Protocol & Linux Stack", stack_groups, PANEL_WIDTH + GAP)
     parts.append("</svg>")
 
@@ -207,6 +211,7 @@ def main():
     (ASSETS / "badge-firmware.svg").write_text(badge("firmware*", "100.0%", 100.0))
     (ASSETS / "badge-protocol.svg").write_text(badge("protocol", "100.0%", 100.0))
     (ASSETS / "badge-driver.svg").write_text(badge("linux-stack", "100.0%", 100.0))
+    (ASSETS / "badge-bootloader.svg").write_text(badge("bootloader", "100.0%", 100.0))
     print("Wrote badges to assets/")
 
 
