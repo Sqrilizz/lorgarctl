@@ -240,6 +240,9 @@ impl<P: Provider> Monitor<P> {
         if matches!(command, Command::QueryState) {
             self.pending_query_ms.get_or_insert(self.clock_ms);
         }
+        if let Command::SetActiveStage { stage } = command {
+            self.state.active_stage = Some(*stage);
+        }
         Ok(TimedEvent::new(Event::Packet {
             device: session.info().clone(),
             direction: Direction::FeatureOutput,
@@ -369,6 +372,15 @@ impl<P: Provider> Monitor<P> {
                                 }
                                 self.state.battery_percentage = Some(battery_percentage);
                                 self.state.battery_observed_ms = Some(timestamp_ms());
+                                if let Ok(stage) = crate::protocol::parse_active_dpi_stage(&raw) {
+                                    if self.state.active_stage != Some(stage) {
+                                        events.push(TimedEvent::new(Event::DpiStageChanged {
+                                            stage,
+                                            confidence: "high".into(),
+                                        }));
+                                    }
+                                    self.state.active_stage = Some(stage);
+                                }
                             }
                             InputEvent::DpiStageChanged { stage }
                                 if device.usage_page == 0xff11 =>

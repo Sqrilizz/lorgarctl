@@ -773,22 +773,23 @@ fn status(cli: &Cli, battery_only: bool) -> Result<()> {
             }
 
             if let Some(s) = stage {
-                let colors = [
-                    "#32cd32 (Lime)",
-                    "#9900ff (Purple)",
-                    "#1e90ff (Blue)",
-                    "#ff7f27 (Orange)",
-                    "#dc143c (Crimson)",
-                    "#fff300 (Yellow)",
-                    "#fb569d (Pink)",
-                    "#4c1130 (Dark Magenta)",
+                let stages = [
+                    (800, "#32cd32 (Lime)"),
+                    (1200, "#9900ff (Purple)"),
+                    (1600, "#1e90ff (Blue)"),
+                    (2400, "#ff7f27 (Orange)"),
+                    (3200, "#dc143c (Crimson)"),
+                    (6400, "#fff300 (Yellow)"),
+                    (12000, "#fb569d (Pink)"),
+                    (16000, "#4c1130 (Dark Magenta)"),
                 ];
-                let color_tag = colors.get(s as usize).unwrap_or(&"");
+                let (dpi_val, color_tag) = stages.get(s as usize).copied().unwrap_or((1200, ""));
                 writeln!(
                     out,
-                    "  {:<14} Stage {} {}",
+                    "  {:<14} Stage {} ({} DPI) {}",
                     "DPI Stage:".dimmed(),
                     s.to_string().bold().cyan(),
+                    dpi_val.to_string().bold().yellow(),
                     color_tag.dimmed()
                 )?;
             } else {
@@ -1045,9 +1046,20 @@ fn run_menu(cli: &Cli) -> Result<()> {
         }
 
         if let Some(s) = stage {
-            writeln!(out, "  DPI:     Stage {}", s.to_string().cyan().bold())?;
+            let dpis = [800, 1200, 1600, 2400, 3200, 6400, 12000, 16000];
+            let dpi_val = dpis.get(s as usize).copied().unwrap_or(1200);
+            writeln!(
+                out,
+                "  DPI:     Stage {} ({} DPI)",
+                s.to_string().cyan().bold(),
+                dpi_val.to_string().yellow().bold()
+            )?;
         } else {
-            writeln!(out, "  DPI:     unknown")?;
+            writeln!(
+                out,
+                "  DPI:     {}",
+                "unknown (move mouse to query)".dimmed()
+            )?;
         }
 
         writeln!(
