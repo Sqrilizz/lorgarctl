@@ -23,10 +23,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             pkg-config \
             libdbus-1-dev \
-            libgtk-4-dev \
             libglib2.0-dev \
             libudev-dev \
-            desktop-file-utils \
             udev
 
       - name: Set up Rust toolchain
@@ -42,9 +40,6 @@ jobs:
 
       - name: Run Clippy linter
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-
-      - name: Validate .desktop entry
-        run: desktop-file-validate desktop/io.github.Sqrilizz.LorgarControl.desktop
 
       - name: Validate udev rules
         run: udevadm verify udev/*.rules

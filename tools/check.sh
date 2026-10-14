@@ -13,12 +13,6 @@ run cargo fmt --all -- --check
 run cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 run cargo test --workspace --locked
 
-if command -v xvfb-run >/dev/null 2>&1; then
-    run xvfb-run -a cargo test -p lorgar-app ui_smoke --locked -- --ignored
-else
-    printf '\n[SKIP] GTK smoke: xvfb-run unavailable\n'
-fi
-
 run cargo build --workspace --release --locked
 
 if [ -d "/lib/modules/$(uname -r)/build" ]; then
@@ -33,12 +27,6 @@ if [ -d "/lib/modules/$(uname -r)/build" ]; then
     fi
 else
     printf '\n[SKIP] kernel check: matching headers unavailable\n'
-fi
-
-if command -v desktop-file-validate >/dev/null 2>&1; then
-    run desktop-file-validate desktop/io.github.Sqrilizz.LorgarControl.desktop
-else
-    printf '\n[SKIP] desktop validation: desktop-file-validate unavailable\n'
 fi
 
 if command -v udevadm >/dev/null 2>&1; then

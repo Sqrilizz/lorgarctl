@@ -14,9 +14,7 @@ handle and the ff11 handle belonging to the same physical USB parent.
 `profiles`/`storage` own configuration; `capture` owns evidence; `ipc` owns
 versioned local messages. `foreground` is isolated from the protocol layer.
 `lorgard` combines these components; `lorgarctl` retains direct mode and the
-original command spellings, tray and UHID integration. `lorgar-app` is a native
-GTK4 frontend; background IPC/config work runs off the UI thread. It uses the
-same typed profile and daemon API, not a second hardware implementation.
+original command spellings, tray and UHID integration. The stack is fully scriptable via the fast `lorgarctl` CLI and `lorgard` user daemon.
 
 The optional `kernel/hid-lorgar` module adds Linux `power_supply` integration and
 root-owned sysfs controls. Its state cache is evidence-based: battery comes only
@@ -37,18 +35,14 @@ use automatic discovery if hidraw numbering changes across reconnects.
 Use a current stable Rust toolchain. Native dependencies on Debian/Ubuntu:
 
 ```sh
-sudo apt install build-essential pkg-config libudev-dev libdbus-1-dev libgtk-4-dev x11-utils
+sudo apt install build-essential pkg-config libudev-dev libdbus-1-dev x11-utils
 cargo build --workspace --release --locked
 install -Dm755 target/release/lorgarctl ~/.local/bin/lorgarctl
 install -Dm755 target/release/lorgard ~/.local/bin/lorgard
-install -Dm755 target/release/lorgar-app ~/.local/bin/lorgar-app
-install -Dm644 desktop/io.github.Sqrilizz.LorgarControl.desktop ~/.local/share/applications/io.github.Sqrilizz.LorgarControl.desktop
 ```
 
 Keep `~/.local/bin` in PATH. The lockfile is now included for reproducible
-application dependencies. The GTK app requires GTK 4.8+ and Rust 1.92+; the
-workspace was verified with Rust 1.97. Build only `-p lorgarctl -p lorgard` to
-omit GTK on headless machines. The baseline README's 1.75 claim was not
+application dependencies. The baseline README's 1.75 claim was not
 supported by its evolving dependencies.
 
 Install the supplied mouse rule (the legacy filename is supported):
@@ -94,51 +88,6 @@ cadence, postpones the module's next query. Kernel-originated writes are seriali
 with the device's 20 ms cooldown. Sysfs setters require administrator access;
 desktop controls continue through the single user daemon and the hidraw `uaccess`
 rule.
-
-## Native settings app
-
-Run `lorgar-app`. It provides overview, sensitivity, lighting, profiles and
-automatic-profile pages with keyboard-accessible native controls. The layout
-and purple accents were informed by [LORGAR Platform](https://lorgar.com/platform),
-but this is an independent Linux frontend, not the official software.
-
-The app connects to the user daemon. If none is available it starts `lorgard`
-beside its executable (or from PATH), and stops only that owned child on normal
-exit. Use the user service for persistent monitoring. `--no-start-daemon` disables
-auto-start; `--socket` attaches to a specific existing socket. `--config` overrides
-profile storage. Without that override the app follows the daemon's reported
-config path; an explicit mismatch is an error.
-
-Unchecked stages and “Leave unchanged” fields generate no writes. The example
-DPI values are editable drafts, never claimed readback. “Save profile” writes
-configuration only. “Apply to mouse” submits the entire validated draft in one
-IPC request; clean saved profiles also become the last profile for optional
-reconnect restoration. Unsaved drafts are not persisted as a reconnect target.
-An Apply success means feature writes succeeded, not hardware readback or an
-atomic hardware transaction. Existing application rules may later select another
-profile. No macros, button remapping, brightness, per-stage RGB or other unknown
-hardware commands are exposed as working features.
-
-Profiles remain editable offline. Save detects concurrent changes to the same
-profile; it does not overwrite CLI edits silently. Reconnect reloads the file;
-reset or reload the profile before retrying a conflicted edit. Unsaved profile
-and application-preference changes trigger a close confirmation, and unrelated
-profile saves preserve in-progress application rules. Referenced profiles cannot
-be deleted. Future config versions stay read-only.
-
-Manual settings work on native Wayland and X11. Automatic application switching
-is X11-only as described below; the app clearly displays this limitation.
-
-The overview shows the product photo by default. The unfinished 3D MSA10W mesh
-is available only with `--experimental-3d`, not as the normal app presentation. Drag to orbit;
-focus the preview and scroll to zoom, or use the visible Zoom/Top/Reset controls.
-Arrow keys rotate, +/- zoom, and Home resets. It renders only on changes and
-does not continuously animate or require a browser, network model service or
-OpenGL context. Keyboard controls and no automatic motion follow the UI/UX
-accessibility guidance. The small indicator can preview the draft color; this
-is not device readback or a simulation of hardware lighting effects. Export the
-mesh using `lorgar-app --export-model NEW_DIRECTORY`; see [model provenance and
-limits](../assets/README.md). No new hardware commands are introduced.
 
 ## CLI and output
 
@@ -334,7 +283,6 @@ cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo build --workspace --release
-xvfb-run -a cargo test -p lorgar-app ui_smoke -- --ignored
 make -C kernel clean
 make -C kernel W=1
 bash -n kernel/reload.sh

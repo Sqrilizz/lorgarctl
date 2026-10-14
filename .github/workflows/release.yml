@@ -23,7 +23,6 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             pkg-config \
             libdbus-1-dev \
-            libgtk-4-dev \
             libglib2.0-dev \
             libudev-dev
 
@@ -39,8 +38,7 @@ jobs:
           mkdir -p "$RELEASE_DIR/bin"
           cp target/release/lorgarctl "$RELEASE_DIR/bin/"
           cp target/release/lorgard "$RELEASE_DIR/bin/"
-          cp target/release/lorgar-app "$RELEASE_DIR/bin/"
-          cp -r udev systemd desktop plasmoid kernel assets "$RELEASE_DIR/"
+          cp -r udev systemd plasmoid kernel assets "$RELEASE_DIR/"
           cp README.md LICENSE-MIT LICENSE-APACHE "$RELEASE_DIR/"
 
           tar -czf "$RELEASE_DIR.tar.gz" "$RELEASE_DIR"

@@ -18,8 +18,7 @@ Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wi
 
 | Component | Path | Description |
 | :--- | :--- | :--- |
-| **`lorgar-app`** | [`crates/lorgar-app`](crates/lorgar-app) | Native GTK4 desktop application with real-time battery status, 8-stage DPI tuning, RGB effects, and profile manager. |
-| **`lorgarctl`** | [`crates/lorgarctl`](crates/lorgarctl) | Fast CLI utility for scripting, diagnostics (`doctor`), shell completions, and bar integration (Waybar, Polybar, KDE). |
+| **`lorgarctl`** | [`crates/lorgarctl`](crates/lorgarctl) | Powerful CLI utility for mouse controls, scripting, diagnostics (`doctor`), shell completions, and bar integration (Waybar, Polybar, KDE). |
 | **`lorgard`** | [`crates/lorgard`](crates/lorgard) | Lightweight background user daemon managing profiles, auto-switching, and IPC over `/run/user/$UID/lorgar/lorgard.sock`. |
 | **`hid-lorgar`** | [`kernel/`](kernel) | Optional Linux kernel module (DKMS) providing native `/sys/class/power_supply` battery integration and sysfs controls. |
 | **`lorgar-core`** | [`crates/lorgar-core`](crates/lorgar-core) | Pure Rust HID protocol parser, device discovery, and transport library. |
@@ -33,13 +32,13 @@ Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wi
 
 ```bash
 # Arch Linux / CachyOS / Manjaro
-sudo pacman -S base-devel pkgconf hidapi dbus gtk4
+sudo pacman -S base-devel pkgconf hidapi dbus
 
 # Ubuntu / Debian
-sudo apt install build-essential pkg-config libudev-dev libhidapi-dev libdbus-1-dev libgtk-4-dev
+sudo apt install build-essential pkg-config libudev-dev libhidapi-dev libdbus-1-dev
 
 # Fedora
-sudo dnf install gcc pkg-config systemd-devel hidapi-devel dbus-devel gtk4-devel
+sudo dnf install gcc pkg-config systemd-devel hidapi-devel dbus-devel
 ```
 
 ### 2. Configure Non-Root Device Permissions (`udev`)
@@ -61,8 +60,7 @@ cargo build --workspace --release --locked
 ```
 
 Compiled binaries will be available in `target/release/`:
-* `target/release/lorgar-app` — GTK4 GUI
-* `target/release/lorgarctl` — CLI tool
+* `target/release/lorgarctl` — CLI control utility
 * `target/release/lorgard` — Background daemon
 
 To install them to `~/.local/bin/`:
@@ -70,33 +68,7 @@ To install them to `~/.local/bin/`:
 ```bash
 install -Dm755 target/release/lorgarctl ~/.local/bin/
 install -Dm755 target/release/lorgard ~/.local/bin/
-install -Dm755 target/release/lorgar-app ~/.local/bin/
-
-# Install desktop entry and icons
-install -Dm644 desktop/io.github.Sqrilizz.LorgarControl.desktop ~/.local/share/applications/
 ```
-
----
-
-## Desktop GUI (`lorgar-app`)
-
-Launch the settings application:
-
-```bash
-lorgar-app
-```
-
-<p align="center">
-  <img src="Screenshot_20260819_183825.png" alt="LORGAR Control Dashboard" width="720">
-</p>
-
-### Features:
-* **8 DPI Stages**: Independent configuration of stages 0..7 (100 to 12,000 DPI) and real-time active stage toggling.
-* **Sensor Polling Rates**: Select 125 Hz (8 ms), 250 Hz (4 ms), 500 Hz (2 ms), or 1000 Hz (1 ms).
-* **RGB Lighting**: Full hardware lighting mode selection (`static`, `breathing`, `color-cycle`, `tapping`, `wave`) and custom 24-bit RGB colors.
-* **Profile Management**: Save and switch persistent gaming and productivity profiles.
-* **Safe Application**: "Apply" communicates live with the mouse; "Save" persists profiles to `$XDG_CONFIG_HOME/lorgar/config.json`.
-* **Optional 3D Visualization**: Experimental interactive mouse view (`lorgar-app --experimental-3d`).
 
 ---
 
@@ -119,12 +91,12 @@ lorgarctl doctor --json
 # Human-readable battery status
 lorgarctl battery
 
-# Short format for panel widgets (e.g. "83%")
+# Short format for panel widgets (e.g. "92%")
 lorgarctl battery --short
 
 # Structured JSON (for Waybar, Polybar, or scripts)
 lorgarctl battery --json
-# Output: {"percentage":83,"icon":"🖱️","text":"83%","tooltip":"LORGAR MSA10W: 83%","class":"good"}
+# Output: {"percentage":92,"icon":"🖱️","text":"92%","tooltip":"LORGAR MSA10W: 92%","class":"good"}
 
 # Send desktop notification if battery is low (<= 20%)
 lorgarctl battery --notify --threshold 20
@@ -138,21 +110,24 @@ lorgarctl battery --notify --threshold 20
     "interval": 120,
     "format": "{icon} {text}",
     "format-icons": {
-        "good": "󰍽",
-        "warning": "󰍾",
-        "critical": "󰍿"
+        "good": "󰁹",
+        "warning": "󰁻",
+        "critical": "󰁺"
     }
 }
 ```
 
 ### DPI & Sensor Configuration
 
+The MSA10W supports 8 onboard DPI stages (0..7) and up to 26,000 DPI:
+
 ```bash
-# Set DPI for a specific stage (Stage 0..7, DPI 100..12000)
+# Set DPI for a specific stage (Stage 0..7, DPI 100..26000)
 lorgarctl dpi set 0 800
 lorgarctl dpi set 1 1600
+lorgarctl dpi set 2 3200
 
-# Switch active DPI stage
+# Switch active DPI stage immediately
 lorgarctl dpi active 1
 ```
 
@@ -171,6 +146,7 @@ lorgarctl rgb mode static
 lorgarctl rgb mode breathing
 lorgarctl rgb mode color-cycle
 lorgarctl rgb mode wave
+lorgarctl rgb mode off
 
 # Set static RGB color (Hex RRGGBB format)
 lorgarctl rgb color ff5500
@@ -185,6 +161,13 @@ lorgarctl profile create gaming
 lorgarctl profile set gaming --dpi-stage 0=800 --dpi-stage 1=1600 --polling 1000 --rgb static --color ff5500
 lorgarctl profile apply gaming
 lorgarctl profile list
+```
+
+### Live Event Streaming & Monitoring
+
+```bash
+# Stream live battery, DPI stage changes, and sleep events in real time
+lorgarctl monitor
 ```
 
 ### Shell Completions
@@ -206,7 +189,7 @@ lorgarctl completions fish > ~/.config/fish/completions/lorgarctl.fish
 
 ## Background Daemon (`lorgard`)
 
-`lorgard` runs in the user session to coordinate device access, synchronize state between CLI/GUI, and automatically switch profiles based on the active application.
+`lorgard` runs in the user session to coordinate device access, synchronize state between CLI invocations, and automatically switch profiles based on the active application window (supports native KDE Plasma Wayland via KWin DBus and X11 via EWMH).
 
 ### Enable User Service:
 
@@ -240,41 +223,10 @@ cd kernel
 sudo ./install-dkms.sh
 ```
 
-### Verify Live Driver:
+### Live Verification:
 
 ```bash
 ./kernel/verify-live.sh
-```
-
----
-
-## KDE Plasma 6 Widget
-
-A native Plasma 6 panel applet is provided in [`plasmoid/`](plasmoid):
-
-```bash
-mkdir -p ~/.local/share/plasma/plasmoids/
-cp -r plasmoid/org.lorgar.battery ~/.local/share/plasma/plasmoids/
-```
-
-Add the **"LORGAR Battery"** widget to your panel through the Plasma Edit Mode.
-
----
-
-## Protocol & Reverse Engineering
-
-The reverse-engineered protocol documentation, packet structures, and command opcodes are documented in [`protocol/msa10w.md`](protocol/msa10w.md).
-
-For packet capture and protocol verification:
-```bash
-# Capture raw USB HID packets
-lorgarctl capture trace.bin --duration 5 --query-state
-
-# Inspect captured packets as JSON
-lorgarctl inspect-capture trace.bin --json
-
-# Compare two state snapshots
-lorgarctl diff-captures before.bin after.bin --json
 ```
 
 ---
@@ -292,5 +244,5 @@ Run the full project test suite and validation gates:
 
 ## License
 
-* **Rust Workspace** (`lorgar-core`, `lorgarctl`, `lorgard`, `lorgar-app`): Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE).
+* **Rust Workspace** (`lorgar-core`, `lorgarctl`, `lorgard`): Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE).
 * **Kernel Module** (`hid-lorgar`): Licensed under [GPL-2.0-or-later](kernel/LICENSE).
