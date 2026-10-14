@@ -944,7 +944,7 @@ static bool lorgar_is_physical_usb(struct hid_device *hdev)
 	struct device *parent = hdev->dev.parent;
 	const char *bus_name = parent ? dev_bus_name(parent) : NULL;
 
-	return hid_is_usb(hdev) && bus_name && !strcmp(bus_name, "usb");
+	return hdev->bus == BUS_USB && bus_name && !strcmp(bus_name, "usb");
 }
 
 static bool lorgar_match(struct hid_device *hdev, bool ignore_special_driver)
