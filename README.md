@@ -43,6 +43,7 @@ Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wi
 | **RGB Effects & Palette** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#packet-0x03---dpi-led-indicator-colors) | Modes (Static, Breathing, Wave, Cycle), hex RGB |
 | **Linux Kernel Module (`hid-lorgar`)** | **100.0%** | [`kernel/`](kernel) | `/sys/class/power_supply`, sysfs controls, DKMS |
 | **Daemon & CLI Management Stack** | **100.0%** | [`crates/`](crates) | `lorgarctl` (CLI/TUI menu), `lorgard` (IPC daemon) |
+| **Firmware Container, Bootloader & Flashing** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#8-firmware-architecture-container-format--flashing-protocols-reverse-engineered-via-rea) | [`lorgar-core::firmware`](crates/lorgar-core/src/firmware.rs), `lorgarctl firmware` |
 
 > **Coverage vs. live validation:** percentages above measure reverse-engineered
 > firmware packets/registers, not end-to-end live proof. Kernel query-transport
@@ -193,6 +194,54 @@ lorgarctl sleep 5
 ```bash
 # Set report rate (125, 250, 500, or 1000 Hz)
 lorgarctl polling set 1000
+```
+
+### Sensor Tuning (LOD, Motion Sync, Angle Snapping)
+
+Fine-tune the PixArt PAW3395 sensor directly via hardware registers (persists in NVRAM):
+
+```bash
+# Lift-Off Distance: 1 mm (low) or 2 mm (high)
+lorgarctl lod 1
+
+# Angle Snapping (prediction / line-straightening)
+lorgarctl angle-snap on
+lorgarctl angle-snap off
+
+# PixArt Motion Sync (USB SOF poll synchronization)
+lorgarctl motion-sync on
+lorgarctl motion-sync off
+```
+
+### Button Debounce Delay (Anti-Double-Click)
+
+Set the switch debounce delay filter in milliseconds (1 to 20 ms) directly in mouse NVRAM:
+
+```bash
+# Set switch debounce delay to 8 ms
+lorgarctl debounce 8
+
+# Enable rapid fire mode
+lorgarctl debounce 8 --rapid-fire
+```
+
+### Firmware Tools & Custom Firmware Management
+
+Reverse-engineered firmware binary container tools, flash dumper, and bootloader switcher (analyzed via [morluto/rea](https://github.com/morluto/rea)):
+
+```bash
+# Inspect and verify a firmware binary container (header, MCU IC, sensor, checksum)
+lorgarctl firmware info firmware.bin
+lorgarctl --json firmware info firmware.bin
+
+# Create a valid checksummed container from a custom binary microcode payload
+lorgarctl firmware create --product "LORGAR MSA10W" --ic "571R" --sensor "PAW3395" --input payload.bin --output custom_fw.bin
+
+# Dump flash memory directly over USB (e.g. read first 256 bytes)
+lorgarctl firmware dump --addr 0x0000 --len 256 --output flash_dump.bin
+
+# Switch mouse MCU to USB update / bootloader mode
+lorgarctl firmware bootloader
 ```
 
 ### RGB Lighting Modes & Colors

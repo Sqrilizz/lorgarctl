@@ -391,20 +391,154 @@ impl InputPacket {
     }
 }
 
-pub fn build_set_sleep_timeout_packet(minutes: u8, active_stage: u8) -> Result<[u8; 32]> {
-    if !(1..=10).contains(&minutes) {
-        return Err(LorgarError::Config(format!(
-            "sleep timeout must be between 1 and 10 minutes (got {minutes})"
-        )));
-    }
-    let mut packet = [0u8; 32];
-    packet[0] = 0x02;
-    packet[1] = active_stage.min(7);
-    packet[2] = 0x01;
-    packet[3] = minutes;
+fn compute_nvram_checksum(packet: &mut [u8; 32]) {
     let sum: u8 = packet[..31].iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
     packet[31] = !sum;
+}
+
+/// Packet 0x01: Master DPI Stage & Lighting Configuration
+pub fn build_nvram_packet_01(
+    active_stage: u8,
+    mode: LightingMode,
+    brightness: u8,
+    speed: u8,
+    direction: u8,
+) -> Result<[u8; 32]> {
+    if active_stage >= DPI_STAGE_COUNT {
+        return Err(LorgarError::InvalidStage {
+            stage: active_stage,
+        });
+    }
+    let speed = speed.clamp(1, 5);
+    let mut packet = [0u8; 32];
+    packet[0] = 0x01;
+    packet[1] = active_stage;
+    packet[2] = match mode {
+        LightingMode::Off => 0x00,
+        LightingMode::Static => 0x01,
+        LightingMode::Breathing => 0x02,
+        LightingMode::ColorCycle => 0x03,
+        LightingMode::Tapping => 0x04,
+        LightingMode::Wave => 0x05,
+    };
+    packet[3] = brightness;
+    packet[4] = speed;
+    packet[5] = direction.min(1);
+    compute_nvram_checksum(&mut packet);
     Ok(packet)
+}
+
+/// Packet 0x02: Sensor, Power & Performance Configuration
+pub fn build_nvram_packet_02(
+    active_stage: u8,
+    lod: u8,
+    sleep_minutes: u8,
+    angle_snap: bool,
+    motion_sync: bool,
+    color: (u8, u8, u8),
+) -> Result<[u8; 32]> {
+    if active_stage >= DPI_STAGE_COUNT {
+        return Err(LorgarError::InvalidStage {
+            stage: active_stage,
+        });
+    }
+    if !(1..=10).contains(&sleep_minutes) {
+        return Err(LorgarError::Config(format!(
+            "sleep timeout must be between 1 and 10 minutes (got {sleep_minutes})"
+        )));
+    }
+    let lod_val = if lod == 2 { 0x02 } else { 0x01 };
+    let mut packet = [0u8; 32];
+    packet[0] = 0x02;
+    packet[1] = active_stage;
+    packet[2] = lod_val;
+    packet[3] = sleep_minutes;
+    packet[5] = if angle_snap { 0x01 } else { 0x00 };
+    packet[6] = if motion_sync { 0x01 } else { 0x00 };
+    packet[8] = color.0;
+    packet[9] = color.1;
+    packet[10] = color.2;
+    compute_nvram_checksum(&mut packet);
+    Ok(packet)
+}
+
+/// Backwards-compatible sleep timeout packet builder
+pub fn build_set_sleep_timeout_packet(minutes: u8, active_stage: u8) -> Result<[u8; 32]> {
+    build_nvram_packet_02(active_stage, 1, minutes, false, false, (0, 0, 0))
+}
+
+/// Packet 0x03: 8-Stage DPI Indicator Palette
+pub fn build_nvram_packet_03(palette: &[(u8, u8, u8); 8]) -> [u8; 32] {
+    let mut packet = [0u8; 32];
+    packet[0] = 0x03;
+    for (i, &(r, g, b)) in palette.iter().enumerate() {
+        let base = 1 + i * 3;
+        packet[base] = r;
+        packet[base + 1] = g;
+        packet[base + 2] = b;
+    }
+    compute_nvram_checksum(&mut packet);
+    packet
+}
+
+/// Packet 0x04: Button Debounce & Rapid-Fire Settings
+pub fn build_nvram_packet_04(
+    debounce_ms: u16,
+    rapid_fire_enabled: bool,
+    fire_interval_ms: u8,
+    fire_repeat_count: u8,
+) -> [u8; 32] {
+    let mut packet = [0u8; 32];
+    packet[0] = 0x04;
+    let [d_lo, d_hi] = debounce_ms.to_le_bytes();
+    packet[1] = d_lo;
+    packet[2] = d_hi;
+    packet[3] = if rapid_fire_enabled { 0x01 } else { 0x00 };
+    packet[4] = fire_interval_ms;
+    packet[5] = fire_repeat_count;
+    compute_nvram_checksum(&mut packet);
+    packet
+}
+
+/// Packets 0x05 & 0x06: Full Hardware DPI Banks (0..3 and 4..7)
+pub fn build_nvram_packet_05_06(stages: &[u16; 8]) -> Result<([u8; 32], [u8; 32])> {
+    for &dpi in stages {
+        if !(MIN_DPI..=MAX_DPI).contains(&dpi) {
+            return Err(LorgarError::InvalidDpi {
+                dpi,
+                min: MIN_DPI,
+                max: MAX_DPI,
+            });
+        }
+    }
+    let mut p5 = [0u8; 32];
+    p5[0] = 0x05;
+    for i in 0..4 {
+        let [lo, hi] = stages[i].to_le_bytes();
+        p5[1 + i * 2] = lo;
+        p5[1 + i * 2 + 1] = hi;
+    }
+    compute_nvram_checksum(&mut p5);
+
+    let mut p6 = [0u8; 32];
+    p6[0] = 0x06;
+    for i in 0..4 {
+        let [lo, hi] = stages[4 + i].to_le_bytes();
+        p6[1 + i * 2] = lo;
+        p6[1 + i * 2 + 1] = hi;
+    }
+    compute_nvram_checksum(&mut p6);
+
+    Ok((p5, p6))
+}
+
+/// Packet 0x07: Physical Button Remapping Table (24 bytes)
+pub fn build_nvram_packet_07(mappings: &[u8; 24]) -> [u8; 32] {
+    let mut packet = [0u8; 32];
+    packet[0] = 0x07;
+    packet[1..25].copy_from_slice(mappings);
+    compute_nvram_checksum(&mut packet);
+    packet
 }
 
 #[cfg(test)]
@@ -542,5 +676,100 @@ mod tests {
             build_set_polling_rate_payload(PollingRate::Hz1000),
             [0x20, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00]
         );
+    }
+
+    #[test]
+    fn test_nvram_packet_01() {
+        let p = build_nvram_packet_01(2, LightingMode::Wave, 200, 4, 1).unwrap();
+        assert_eq!(p[0], 0x01);
+        assert_eq!(p[1], 2);
+        assert_eq!(p[2], 0x05);
+        assert_eq!(p[3], 200);
+        assert_eq!(p[4], 4);
+        assert_eq!(p[5], 1);
+        let sum: u8 = p.iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
+        assert_eq!(sum, 0xff);
+    }
+
+    #[test]
+    fn test_nvram_packet_02() {
+        let p = build_nvram_packet_02(0, 2, 8, true, true, (0xff, 0xaa, 0x55)).unwrap();
+        assert_eq!(p[0], 0x02);
+        assert_eq!(p[1], 0);
+        assert_eq!(p[2], 0x02);
+        assert_eq!(p[3], 8);
+        assert_eq!(p[5], 1);
+        assert_eq!(p[6], 1);
+        assert_eq!(p[8], 0xff);
+        assert_eq!(p[9], 0xaa);
+        assert_eq!(p[10], 0x55);
+        let sum: u8 = p.iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
+        assert_eq!(sum, 0xff);
+    }
+
+    #[test]
+    fn test_nvram_packet_03() {
+        let palette = [
+            (255, 0, 0),
+            (0, 255, 0),
+            (0, 0, 255),
+            (255, 255, 0),
+            (255, 0, 255),
+            (0, 255, 255),
+            (255, 255, 255),
+            (128, 128, 128),
+        ];
+        let p = build_nvram_packet_03(&palette);
+        assert_eq!(p[0], 0x03);
+        assert_eq!(p[1], 255);
+        assert_eq!(p[2], 0);
+        assert_eq!(p[3], 0);
+        assert_eq!(p[22], 128);
+        assert_eq!(p[23], 128);
+        assert_eq!(p[24], 128);
+        let sum: u8 = p.iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
+        assert_eq!(sum, 0xff);
+    }
+
+    #[test]
+    fn test_nvram_packet_04() {
+        let p = build_nvram_packet_04(12, true, 40, 3);
+        assert_eq!(p[0], 0x04);
+        assert_eq!(p[1], 12);
+        assert_eq!(p[2], 0);
+        assert_eq!(p[3], 1);
+        assert_eq!(p[4], 40);
+        assert_eq!(p[5], 3);
+        let sum: u8 = p.iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
+        assert_eq!(sum, 0xff);
+    }
+
+    #[test]
+    fn test_nvram_packet_05_06() {
+        let stages = [800, 1200, 1600, 2400, 3200, 4800, 6400, 12000];
+        let (p5, p6) = build_nvram_packet_05_06(&stages).unwrap();
+        assert_eq!(p5[0], 0x05);
+        assert_eq!(&p5[1..3], &800u16.to_le_bytes());
+        assert_eq!(&p5[7..9], &2400u16.to_le_bytes());
+        let sum5: u8 = p5.iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
+        assert_eq!(sum5, 0xff);
+
+        assert_eq!(p6[0], 0x06);
+        assert_eq!(&p6[1..3], &3200u16.to_le_bytes());
+        assert_eq!(&p6[7..9], &12000u16.to_le_bytes());
+        let sum6: u8 = p6.iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
+        assert_eq!(sum6, 0xff);
+    }
+
+    #[test]
+    fn test_nvram_packet_07() {
+        let mappings = [
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+        ];
+        let p = build_nvram_packet_07(&mappings);
+        assert_eq!(p[0], 0x07);
+        assert_eq!(&p[1..25], &mappings);
+        let sum: u8 = p.iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
+        assert_eq!(sum, 0xff);
     }
 }

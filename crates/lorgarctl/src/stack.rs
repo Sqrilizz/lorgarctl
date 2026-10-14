@@ -1,4 +1,4 @@
-use crate::{Cli, Commands, DpiCommands, PollingSubcommands, RgbCommands};
+use crate::{Cli, Commands, DpiCommands, FirmwareCommands, PollingSubcommands, RgbCommands};
 use clap::{CommandFactory, Subcommand};
 use colored::*;
 use lorgar_core::capture::{self, CaptureWriter, Header};
@@ -1021,6 +1021,92 @@ fn control(cli: &Cli) -> Result<()> {
             };
             execute(cli, command)
         }
+        Commands::Lod { mm } => {
+            let Some(val) = mm else {
+                return show_lod_help(cli);
+            };
+            let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
+            dev.set_lod(*val)?;
+            if cli.json {
+                output(&json!({"ok": true, "lod_mm": val}), cli.json)?;
+            } else {
+                writeln!(
+                    std::io::stdout().lock(),
+                    "{}",
+                    format!("Lift-Off Distance set to {} mm", val)
+                        .green()
+                        .bold()
+                )?;
+            }
+            Ok(())
+        }
+        Commands::Debounce { ms, rapid_fire } => {
+            let Some(val) = ms else {
+                return show_debounce_help(cli);
+            };
+            let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
+            dev.set_debounce(*val, *rapid_fire)?;
+            if cli.json {
+                output(
+                    &json!({"ok": true, "debounce_ms": val, "rapid_fire": rapid_fire}),
+                    cli.json,
+                )?;
+            } else {
+                writeln!(
+                    std::io::stdout().lock(),
+                    "{}",
+                    format!(
+                        "Button debounce set to {} ms (rapid fire: {})",
+                        val, rapid_fire
+                    )
+                    .green()
+                    .bold()
+                )?;
+            }
+            Ok(())
+        }
+        Commands::AngleSnap { enabled } => {
+            let Some(val) = enabled else {
+                return show_angle_snap_help(cli);
+            };
+            let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
+            dev.set_angle_snapping(*val)?;
+            if cli.json {
+                output(&json!({"ok": true, "angle_snapping": val}), cli.json)?;
+            } else {
+                writeln!(
+                    std::io::stdout().lock(),
+                    "{}",
+                    format!(
+                        "Angle snapping {}",
+                        if *val { "enabled" } else { "disabled" }
+                    )
+                    .green()
+                    .bold()
+                )?;
+            }
+            Ok(())
+        }
+        Commands::MotionSync { enabled } => {
+            let Some(val) = enabled else {
+                return show_motion_sync_help(cli);
+            };
+            let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
+            dev.set_motion_sync(*val)?;
+            if cli.json {
+                output(&json!({"ok": true, "motion_sync": val}), cli.json)?;
+            } else {
+                writeln!(
+                    std::io::stdout().lock(),
+                    "{}",
+                    format!("Motion sync {}", if *val { "enabled" } else { "disabled" })
+                        .green()
+                        .bold()
+                )?;
+            }
+            Ok(())
+        }
+        Commands::Firmware { sub } => handle_firmware(cli, sub),
         _ => Err(LorgarError::Config(
             "--daemon/--json is not supported for this legacy integration or raw debug command"
                 .into(),
@@ -1031,6 +1117,251 @@ fn control(cli: &Cli) -> Result<()> {
 fn color_command(value: &str) -> Result<Command> {
     let (red, green, blue) = lorgar_core::parse_hex_color(value)?;
     Ok(Command::SetLightingColor { red, green, blue })
+}
+
+fn handle_firmware(cli: &Cli, sub: &FirmwareCommands) -> Result<()> {
+    match sub {
+        FirmwareCommands::Info { path } => {
+            let data = std::fs::read(path)?;
+            let info = lorgar_core::firmware::verify_header(&data)?;
+            let code_bytes = data
+                .len()
+                .saturating_sub(lorgar_core::firmware::FIRMWARE_HEADER_SIZE);
+            if cli.json {
+                output(
+                    &json!({
+                        "valid": true,
+                        "header_len": lorgar_core::firmware::FIRMWARE_HEADER_SIZE,
+                        "product_name": info.product_name,
+                        "ic_name": info.ic_name,
+                        "sensor_name": info.sensor_name,
+                        "flash_base_addr": format!("0x{:08x}", info.flash_base_addr),
+                        "code_payload_bytes": code_bytes,
+                        "total_file_bytes": data.len(),
+                    }),
+                    cli.json,
+                )
+            } else {
+                let mut out = std::io::stdout().lock();
+                writeln!(out, "{}", "LORGAR Firmware Container Info".bold().white())?;
+                writeln!(
+                    out,
+                    "  Status:        {}",
+                    "Valid (Checksum verified)".green()
+                )?;
+                writeln!(out, "  Product Name:  {}", info.product_name.cyan())?;
+                writeln!(out, "  MCU IC:        {}", info.ic_name.yellow())?;
+                writeln!(out, "  Sensor:        {}", info.sensor_name.magenta())?;
+                writeln!(out, "  Flash Base:    0x{:08X}", info.flash_base_addr)?;
+                writeln!(
+                    out,
+                    "  Header Size:   0x{:X} ({} bytes)",
+                    lorgar_core::firmware::FIRMWARE_HEADER_SIZE,
+                    lorgar_core::firmware::FIRMWARE_HEADER_SIZE
+                )?;
+                writeln!(out, "  Code Size:     {} bytes", code_bytes)?;
+                Ok(())
+            }
+        }
+        FirmwareCommands::Create {
+            product,
+            ic,
+            sensor,
+            flash_base,
+            input,
+            output: out_path,
+        } => {
+            let payload = std::fs::read(input)?;
+            let container =
+                lorgar_core::firmware::create_firmware(product, ic, sensor, *flash_base, &payload);
+            let verified = lorgar_core::firmware::verify_header(&container)?;
+            std::fs::write(out_path, &container)?;
+            if cli.json {
+                output(
+                    &json!({
+                        "ok": true,
+                        "created": out_path.display().to_string(),
+                        "product": verified.product_name,
+                        "ic": verified.ic_name,
+                        "sensor": verified.sensor_name,
+                        "payload_size": payload.len(),
+                        "container_size": container.len(),
+                    }),
+                    cli.json,
+                )
+            } else {
+                let mut out = std::io::stdout().lock();
+                writeln!(
+                    out,
+                    "{}",
+                    "Firmware Container Created Successfully".green().bold()
+                )?;
+                writeln!(out, "  Target Output:  {}", out_path.display())?;
+                writeln!(out, "  Product:        {}", verified.product_name.cyan())?;
+                writeln!(out, "  MCU IC:         {}", verified.ic_name.yellow())?;
+                writeln!(out, "  Sensor:         {}", verified.sensor_name.magenta())?;
+                writeln!(out, "  Payload Size:   {} bytes", payload.len())?;
+                writeln!(out, "  Total Size:     {} bytes", container.len())?;
+                Ok(())
+            }
+        }
+        FirmwareCommands::Bootloader => {
+            let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
+            dev.enter_bootloader()?;
+            if cli.json {
+                output(
+                    &json!({
+                        "ok": true,
+                        "message": "Device entered USB update / bootloader mode"
+                    }),
+                    cli.json,
+                )
+            } else {
+                writeln!(
+                    std::io::stdout().lock(),
+                    "{}",
+                    "Device successfully switched to USB Update / Bootloader mode."
+                        .green()
+                        .bold()
+                )?;
+                Ok(())
+            }
+        }
+        FirmwareCommands::Dump {
+            addr,
+            len,
+            output: out_path,
+        } => {
+            let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
+            let dumped = dev.dump_flash(*addr, *len)?;
+            if let Some(path) = out_path {
+                std::fs::write(path, &dumped)?;
+                if cli.json {
+                    output(
+                        &json!({
+                            "ok": true,
+                            "addr": addr,
+                            "bytes": dumped.len(),
+                            "path": path.display().to_string(),
+                        }),
+                        cli.json,
+                    )?;
+                } else {
+                    writeln!(
+                        std::io::stdout().lock(),
+                        "{}",
+                        format!(
+                            "Dumped {} bytes from flash addr 0x{:04X} to {}",
+                            dumped.len(),
+                            addr,
+                            path.display()
+                        )
+                        .green()
+                        .bold()
+                    )?;
+                }
+            } else {
+                let hex_str: String = dumped.iter().map(|b| format!("{:02x}", b)).collect();
+                if cli.json {
+                    output(
+                        &json!({
+                            "ok": true,
+                            "addr": addr,
+                            "bytes": dumped.len(),
+                            "hex": hex_str,
+                        }),
+                        cli.json,
+                    )?;
+                } else {
+                    let mut out = std::io::stdout().lock();
+                    writeln!(
+                        out,
+                        "{}",
+                        format!("Flash dump: 0x{:04X} ({} bytes)", addr, dumped.len())
+                            .cyan()
+                            .bold()
+                    )?;
+                    for (i, chunk) in dumped.chunks(16).enumerate() {
+                        let offset = addr + (i * 16) as u16;
+                        write!(out, "{:04x}: ", offset)?;
+                        for b in chunk {
+                            write!(out, "{:02x} ", b)?;
+                        }
+                        writeln!(out)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+fn show_lod_help(cli: &Cli) -> Result<()> {
+    if cli.json {
+        return output(&json!({"supported_lod_mm": [1, 2]}), cli.json);
+    }
+    let mut out = std::io::stdout().lock();
+    writeln!(
+        out,
+        "{}",
+        "LORGAR MSA10W Lift-Off Distance (LOD)".bold().white()
+    )?;
+    writeln!(out, "  Supported: 1 mm, 2 mm")?;
+    writeln!(out)?;
+    writeln!(out, "{}", "Usage:".dimmed())?;
+    writeln!(
+        out,
+        "  lorgarctl lod <1|2>             Set Lift-Off Distance (1mm or 2mm)"
+    )?;
+    Ok(())
+}
+
+fn show_debounce_help(cli: &Cli) -> Result<()> {
+    if cli.json {
+        return output(&json!({"supported_debounce_range_ms": [1, 20]}), cli.json);
+    }
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "{}", "LORGAR MSA10W Button Debounce".bold().white())?;
+    writeln!(out, "  Supported: 1..20 ms")?;
+    writeln!(out)?;
+    writeln!(out, "{}", "Usage:".dimmed())?;
+    writeln!(
+        out,
+        "  lorgarctl debounce <ms> [--rapid-fire]   Set button debounce delay"
+    )?;
+    Ok(())
+}
+
+fn show_angle_snap_help(cli: &Cli) -> Result<()> {
+    if cli.json {
+        return output(&json!({"options": ["on", "off"]}), cli.json);
+    }
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "{}", "LORGAR MSA10W Angle Snapping".bold().white())?;
+    writeln!(out, "  Supported: on, off")?;
+    writeln!(out)?;
+    writeln!(out, "{}", "Usage:".dimmed())?;
+    writeln!(
+        out,
+        "  lorgarctl angle-snap <on|off>   Enable or disable angle snapping"
+    )?;
+    Ok(())
+}
+
+fn show_motion_sync_help(cli: &Cli) -> Result<()> {
+    if cli.json {
+        return output(&json!({"options": ["on", "off"]}), cli.json);
+    }
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "{}", "LORGAR MSA10W Motion Sync".bold().white())?;
+    writeln!(out, "  Supported: on, off")?;
+    writeln!(out)?;
+    writeln!(out, "{}", "Usage:".dimmed())?;
+    writeln!(
+        out,
+        "  lorgarctl motion-sync <on|off>  Enable or disable motion sync"
+    )?;
+    Ok(())
 }
 
 fn run_menu(cli: &Cli) -> Result<()> {
@@ -1424,6 +1755,18 @@ mod tests {
                 "--color",
                 "ff5500",
             ],
+            vec!["lorgarctl", "lod", "1"],
+            vec!["lorgarctl", "debounce", "8"],
+            vec!["lorgarctl", "angle-snap", "on"],
+            vec!["lorgarctl", "motion-sync", "off"],
+            vec![
+                "lorgarctl",
+                "firmware",
+                "info",
+                "crates/lorgarctl/src/main.rs",
+            ],
+            vec!["lorgarctl", "firmware", "bootloader"],
+            vec!["lorgarctl", "firmware", "dump", "--len", "64"],
         ] {
             assert!(Cli::try_parse_from(args).is_ok());
         }

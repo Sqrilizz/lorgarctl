@@ -66,7 +66,7 @@ struct Cli {
 }
 
 #[derive(Subcommand, Debug)]
-enum Commands {
+pub enum Commands {
     #[command(
         about = "Diagnose permissions, interfaces, configuration and daemon availability without sending hardware commands"
     )]
@@ -180,6 +180,44 @@ enum Commands {
         minutes: Option<u8>,
     },
 
+    /// Manage sensor Lift-Off Distance (1 mm or 2 mm)
+    Lod {
+        /// LOD in millimeters: 1 | 2
+        #[arg(value_parser = clap::value_parser!(u8).range(1..=2))]
+        mm: Option<u8>,
+    },
+
+    /// Manage button debounce delay in milliseconds (1..20 ms)
+    Debounce {
+        /// Debounce delay in milliseconds (1..20)
+        #[arg(value_parser = clap::value_parser!(u16).range(1..=20))]
+        ms: Option<u16>,
+
+        /// Enable or disable rapid fire mode
+        #[arg(long)]
+        rapid_fire: bool,
+    },
+
+    /// Manage sensor angle snapping / prediction (on | off)
+    AngleSnap {
+        /// Enable or disable angle snapping: on / true / 1 / off / false / 0
+        #[arg(value_parser = parse_bool)]
+        enabled: Option<bool>,
+    },
+
+    /// Manage sensor motion sync (on | off)
+    MotionSync {
+        /// Enable or disable motion sync: on / true / 1 / off / false / 0
+        #[arg(value_parser = parse_bool)]
+        enabled: Option<bool>,
+    },
+
+    /// Firmware analysis, verification, dumping, container creation, and bootloader entry
+    Firmware {
+        #[command(subcommand)]
+        sub: FirmwareCommands,
+    },
+
     /// Developer and reverse-engineering utilities
     Debug {
         #[command(subcommand)]
@@ -188,7 +226,59 @@ enum Commands {
 }
 
 #[derive(Subcommand, Debug)]
-enum PollingSubcommands {
+pub enum FirmwareCommands {
+    /// Inspect and verify firmware binary container, headers, and checksums
+    Info {
+        /// Path to firmware binary file
+        path: std::path::PathBuf,
+    },
+    /// Create a signed/checksummed firmware container from raw code payload
+    Create {
+        /// Target product name (default: "LORGAR MSA10W")
+        #[arg(long, default_value = "LORGAR MSA10W")]
+        product: String,
+        /// Target MCU IC model (default: "571R")
+        #[arg(long, default_value = "571R")]
+        ic: String,
+        /// Target optical sensor (default: "PAW3395")
+        #[arg(long, default_value = "PAW3395")]
+        sensor: String,
+        /// Flash base destination address in hex or decimal (default: 0)
+        #[arg(long, default_value_t = 0)]
+        flash_base: u32,
+        /// Input raw binary firmware code payload
+        #[arg(long)]
+        input: std::path::PathBuf,
+        /// Output container file
+        #[arg(long)]
+        output: std::path::PathBuf,
+    },
+    /// Switch mouse MCU into USB Bootloader / Update mode
+    Bootloader,
+    /// Read back raw flash memory chunks from device
+    Dump {
+        /// Flash memory starting address (default: 0)
+        #[arg(long, default_value_t = 0)]
+        addr: u16,
+        /// Total number of bytes to dump (default: 256)
+        #[arg(long, default_value_t = 256)]
+        len: usize,
+        /// Optional output file path to write dumped bytes
+        #[arg(long)]
+        output: Option<std::path::PathBuf>,
+    },
+}
+
+pub fn parse_bool(s: &str) -> std::result::Result<bool, String> {
+    match s.to_ascii_lowercase().as_str() {
+        "on" | "true" | "1" | "enable" | "enabled" | "yes" => Ok(true),
+        "off" | "false" | "0" | "disable" | "disabled" | "no" => Ok(false),
+        _ => Err(format!("expected 'on' or 'off', got '{s}'")),
+    }
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PollingSubcommands {
     /// Set USB polling rate in Hz (125, 250, 500, 1000)
     Set {
         /// Frequency in Hz: 125 | 250 | 500 | 1000
@@ -213,7 +303,7 @@ fn parse_polling_rate(s: &str) -> std::result::Result<PollingRate, String> {
 }
 
 #[derive(Subcommand, Debug)]
-enum RgbCommands {
+pub enum RgbCommands {
     /// Set RGB lighting mode (static, breathing, color-cycle, tapping, wave)
     Mode {
         /// Lighting mode name: static | breathing | color-cycle | tapping | wave
@@ -228,7 +318,7 @@ enum RgbCommands {
     },
 }
 
-fn parse_lighting_mode(s: &str) -> std::result::Result<LightingMode, String> {
+pub fn parse_lighting_mode(s: &str) -> std::result::Result<LightingMode, String> {
     match s.to_lowercase().replace('_', "-").as_str() {
         "off" | "none" | "disabled" => Ok(LightingMode::Off),
         "static" => Ok(LightingMode::Static),
@@ -244,7 +334,7 @@ fn parse_lighting_mode(s: &str) -> std::result::Result<LightingMode, String> {
 }
 
 #[derive(Subcommand, Debug)]
-enum DpiCommands {
+pub enum DpiCommands {
     /// Show all DPI stages and active stage
     List,
 
@@ -278,7 +368,7 @@ enum DpiCommands {
 }
 
 #[derive(Subcommand, Debug)]
-enum DebugCommands {
+pub enum DebugCommands {
     /// Send raw 8-byte feature report to configuration interface (DANGER: for development)
     SendFeature {
         /// 8 hex bytes (e.g. "26 00 01 78 05 00 00 00" or single string "2600017805000000")
@@ -305,7 +395,7 @@ fn open_device(cli_device: Option<&str>, debug: bool) -> Result<Msa10w> {
         if debug {
             println!(
                 "{}",
-                "Auto-discovering LORGAR MSA10W configuration interface...".dimmed()
+                "Opening first discovered LORGAR MSA10W device...".dimmed()
             );
         }
         Msa10w::open()
@@ -327,6 +417,15 @@ fn send_desktop_notification(title: &str, body: &str, critical: bool) {
             "battery-low"
         }),
     );
+}
+
+fn wait_or_stop(stopped: &std::sync::atomic::AtomicBool, seconds: u64) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+    while std::time::Instant::now() < deadline
+        && !stopped.load(std::sync::atomic::Ordering::Relaxed)
+    {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 
 fn main() -> std::process::ExitCode {
@@ -374,6 +473,11 @@ fn run_app(cli: Cli) -> Result<()> {
         | Commands::Dpi { .. }
         | Commands::Polling { .. }
         | Commands::Rgb { .. }
+        | Commands::Lod { .. }
+        | Commands::Debounce { .. }
+        | Commands::AngleSnap { .. }
+        | Commands::MotionSync { .. }
+        | Commands::Firmware { .. }
         | Commands::Doctor
         | Commands::Monitor
         | Commands::Capture { .. }
@@ -448,57 +552,27 @@ fn run_app(cli: Cli) -> Result<()> {
                 let mut report = [0u8; 9];
                 report[0] = 0x00;
                 report[1..9].copy_from_slice(&payload);
-
-                println!(
-                    "Payload: {}",
-                    crate::hex::format_hex_bytes(&payload).yellow()
-                );
-                println!(
-                    "Report:  {}",
-                    crate::hex::format_hex_bytes(&report).yellow()
-                );
-
                 dev.send_raw_feature(&payload)?;
-                println!("Result:  {}", "OK".green().bold());
-
+                println!("{}", "Payload sent successfully.".green());
                 Ok(())
             }
-
             DebugCommands::Query { bytes } => {
                 let payload = if bytes.is_empty() {
                     [0x82, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
                 } else {
                     crate::hex::parse_hex_payload(&bytes)?
                 };
-
                 let dev = open_device(cli.device.as_deref(), cli.debug)?;
-                let info = dev.info();
-
-                println!(
-                    "Sending feature query to {} ({})",
-                    info.path.cyan(),
-                    crate::hex::format_hex_bytes(&payload).yellow()
-                );
-
+                println!("Querying hardware with feature payload: {:02x?}", payload);
                 let response = dev.query_feature(&payload, 1000)?;
-
-                println!("Received {} byte(s) response:", response.len());
-                for chunk in response.chunks(16) {
-                    println!("  {}", crate::hex::format_hex_bytes(chunk).cyan());
-                }
-
+                println!(
+                    "Response from hardware ({} bytes): {:02x?}",
+                    response.len(),
+                    response
+                );
                 Ok(())
             }
         },
-    }
-}
-
-fn wait_or_stop(stopped: &std::sync::atomic::AtomicBool, seconds: u64) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
-    while std::time::Instant::now() < deadline
-        && !stopped.load(std::sync::atomic::Ordering::Relaxed)
-    {
-        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
 

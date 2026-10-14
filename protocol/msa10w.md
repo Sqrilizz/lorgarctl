@@ -460,3 +460,73 @@ For `0x0f`, repeat the query-only experiment while independently recording
 awake/asleep, receiver-only, cable and charge conditions. Change just one
 condition per comparison and control competing clients. Preserve failures and
 timeouts as evidence. No additional field is promoted to CONFIRMED here.
+
+---
+
+## 8. Firmware Architecture, Container Format & Flashing Protocols (Reverse-Engineered via REA)
+
+Extracted from official LORGAR Platform Windows components (`HIDUsb.dll`, `mouse.MSA10WR.dll`) using REA (`rea inspect-with-objdump`, `rea inspect-pe-resources`).
+
+### Hardware Profile
+- **MCU**: Holtek / Hetai `571R` (HT68FB571 USB Flash MCU).
+- **Sensor**: PixArt PAW3395 (100–26,000 DPI) / PAW3311.
+- **USB Vendor ID**: `0x093a` (PixArt Imaging, Inc.).
+- **USB Product IDs**:
+  - `0xc600`: Wired USB-C Mode.
+  - `0xc601`: 2.4 GHz Wireless Dongle Mode.
+
+### Firmware Binary Container Format (Offset Layout)
+Firmware images are packaged into a binary container with a fixed `0x2000` (8,192-byte) header followed by raw MCU code payload.
+**Security Notice**: The container employs no cryptographic signatures or encryption (no RSA, ECDSA, AES). Integrity is enforced solely by an arithmetic 32-bit checksum.
+
+| Offset Range | Type / Format | Field Description |
+| :--- | :--- | :--- |
+| `0x0000..0x0003` | `u32` (Little-Endian) | Checksum: `0x55555555 - sum(bytes[8..header_len])` |
+| `0x0004..0x0007` | `u32` (Little-Endian) | Header Length: `0x00002000` (8192 bytes) |
+| `0x0037..0x0076` | ASCII (Null-term) | Target Product Name (e.g. `"LORGAR MSA10W"`) |
+| `0x0077..0x00B6` | ASCII (Null-term) | Target MCU Model (`"571R"`) |
+| `0x00B7..0x00F6` | ASCII (Null-term) | Target Optical Sensor (`"PAW3395"`) |
+| `0x00F7..0x0136` | ASCII (Null-term) | Bootloader Input Endpoint Descriptor |
+| `0x0137..0x0176` | ASCII (Null-term) | Bootloader Output Endpoint Descriptor |
+| `0x0177..0x01B6` | ASCII (Null-term) | Normal Runtime Input Endpoint Descriptor |
+| `0x021E..0x0221` | `u32` (Big-Endian) | Flash Base Destination Address (`0x00000000`) |
+| `0x0277..0x02B6` | ASCII (Null-term) | Normal Runtime Output Endpoint Descriptor |
+| `0x2000..EOF` | Binary Bytes | Executable Firmware / Microcode Payload |
+
+### Bootloader Update Mode Entry Protocol (`UsbServer_EnterUsbUpdateMode`)
+Sent as an 8-byte Feature command over configuration interface (`usage_page: 0xff10`):
+```text
+01 01 00 08 0d 00 00 3e
+```
+- `0x01`: Command opcode
+- `0x01`: Sub-opcode (Update mode)
+- `0x00`: Reserved
+- `0x08`, `0x0d`: Update sequence markers
+- `0x00`, `0x00`: Reserved
+- `0x3E`: Checksum: `(0x55 - sum(bytes[0..6])) & 0xFF`
+Device immediately resets and boots into USB update mode (DFU).
+
+### Flash Readback Protocol (`UsbServer_ReadAllFlashData`)
+Requests a memory chunk from internal flash memory:
+```text
+08 08 00 AH AL CC 00 CS
+```
+- `0x08`: Opcode
+- `0x08`: Sub-opcode
+- `0x00`: Reserved
+- `AH`: 16-bit address high byte
+- `AL`: 16-bit address low byte
+- `CC`: Chunk size in bytes (maximum `0x0A` = 10 bytes)
+- `0x00`: Reserved
+- `CS`: Checksum: `(0x55 - sum(bytes[0..6])) & 0xFF`
+Device responds with an input report containing read flash bytes.
+
+### Flash Write Protocol (`UsbServer_WriteCommand`)
+Writes flash in 32-byte blocks:
+```text
+OP 20 A3 A2 A1 A0 [32 data bytes] CS
+```
+- `OP`: Opcode (`0xC0` for regular blocks, `0xC1` for final block)
+- `0x20`: Chunk length (32 bytes)
+- `A3..A0`: 32-bit big-endian target flash address
+- `CS`: Checksum: `(0x55 - sum(bytes[0..38])) & 0xFF`

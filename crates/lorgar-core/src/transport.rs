@@ -44,6 +44,7 @@ where
 
 pub trait HidTransport: Send {
     fn send_feature_command(&self, payload: &[u8; 8]) -> Result<()>;
+    fn send_feature_report(&self, report: &[u8]) -> Result<()>;
     fn query_feature_command(&self, payload: &[u8; 8], timeout_ms: i32) -> Result<Vec<u8>>;
     fn read_input(&self, _timeout_ms: i32) -> Result<Option<Vec<u8>>> {
         Err(LorgarError::Transport(
@@ -118,8 +119,12 @@ impl DeviceLock {
 impl HidTransport for HidapiTransport {
     fn send_feature_command(&self, payload: &[u8; 8]) -> Result<()> {
         let report = FeaturePacket::parse(payload)?.report();
-        log::debug!("Feature output: {:02x?}", report);
-        self.device.send_feature_report(&report)?;
+        self.send_feature_report(&report)
+    }
+
+    fn send_feature_report(&self, report: &[u8]) -> Result<()> {
+        log::debug!("Feature report output: {:02x?}", report);
+        self.device.send_feature_report(report)?;
         std::thread::sleep(Duration::from_millis(20));
         Ok(())
     }
@@ -144,12 +149,17 @@ impl HidTransport for HidapiTransport {
 #[derive(Default)]
 pub struct MockTransport {
     pub sent: RefCell<Vec<[u8; 8]>>,
+    pub sent_reports: RefCell<Vec<Vec<u8>>>,
     pub input: RefCell<VecDeque<Result<Vec<u8>>>>,
 }
 
 impl HidTransport for MockTransport {
     fn send_feature_command(&self, payload: &[u8; 8]) -> Result<()> {
         self.sent.borrow_mut().push(*payload);
+        Ok(())
+    }
+    fn send_feature_report(&self, report: &[u8]) -> Result<()> {
+        self.sent_reports.borrow_mut().push(report.to_vec());
         Ok(())
     }
     fn query_feature_command(&self, payload: &[u8; 8], _timeout_ms: i32) -> Result<Vec<u8>> {

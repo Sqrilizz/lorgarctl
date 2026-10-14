@@ -57,6 +57,9 @@ pub enum LorgarError {
     #[error("Transport error: {0}")]
     Transport(String),
 
+    #[error("Firmware error: {0}")]
+    Firmware(String),
+
     #[error(
         "profile '{name}' stopped at command {index}; earlier writes may have applied: {source}"
     )]

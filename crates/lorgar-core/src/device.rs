@@ -214,20 +214,84 @@ impl Msa10w {
         Ok(payload)
     }
 
+    pub fn send_nvram_packet(&self, packet: &[u8; 32]) -> Result<()> {
+        let mut report = [0u8; 33];
+        report[1..].copy_from_slice(packet);
+        self.transport.send_feature_report(&report)
+    }
+
     pub fn set_sleep_timeout(&self, minutes: u8, active_stage: u8) -> Result<()> {
         let packet = crate::protocol::build_set_sleep_timeout_packet(minutes, active_stage)?;
-        let mut report = [0u8; 33];
-        report[1..].copy_from_slice(&packet);
-        let api = HidApi::new()?;
-        let c_path = std::ffi::CString::new(self.info.path.as_str()).map_err(|_| {
-            LorgarError::DeviceOpenFailed {
-                path: self.info.path.clone(),
+        self.send_nvram_packet(&packet)
+    }
+
+    pub fn set_sensor_config(
+        &self,
+        active_stage: u8,
+        lod_mm: u8,
+        sleep_timeout_minutes: u8,
+        angle_snapping: bool,
+        motion_sync: bool,
+        color: (u8, u8, u8),
+    ) -> Result<()> {
+        let packet = crate::protocol::build_nvram_packet_02(
+            active_stage,
+            lod_mm,
+            sleep_timeout_minutes,
+            angle_snapping,
+            motion_sync,
+            color,
+        )?;
+        self.send_nvram_packet(&packet)
+    }
+
+    pub fn set_lod(&self, lod_mm: u8) -> Result<()> {
+        self.set_sensor_config(0, lod_mm, 5, false, true, (0, 0, 0))
+    }
+
+    pub fn set_angle_snapping(&self, enabled: bool) -> Result<()> {
+        self.set_sensor_config(0, 1, 5, enabled, true, (0, 0, 0))
+    }
+
+    pub fn set_motion_sync(&self, enabled: bool) -> Result<()> {
+        self.set_sensor_config(0, 1, 5, false, enabled, (0, 0, 0))
+    }
+
+    pub fn set_debounce(&self, debounce_ms: u16, rapid_fire: bool) -> Result<()> {
+        let packet = crate::protocol::build_nvram_packet_04(debounce_ms, rapid_fire, 50, 3);
+        self.send_nvram_packet(&packet)
+    }
+
+    pub fn enter_bootloader(&self) -> Result<()> {
+        let packet = crate::firmware::build_enter_bootloader_packet();
+        self.transport.send_feature_command(&packet)
+    }
+
+    pub fn read_flash(&self, addr: u16, len: u8) -> Result<Vec<u8>> {
+        let packet = crate::firmware::build_read_flash_packet(addr, len);
+        self.query_feature(&packet, 1000)
+    }
+
+    pub fn dump_flash(&self, start_addr: u16, total_len: usize) -> Result<Vec<u8>> {
+        let mut dumped = Vec::with_capacity(total_len);
+        let mut cur_addr = start_addr;
+        let mut remaining = total_len;
+        while remaining > 0 {
+            let chunk_len = remaining.min(10) as u8;
+            let resp = self.read_flash(cur_addr, chunk_len)?;
+            let data = if resp.len() >= 8 {
+                &resp[2..resp.len().min(2 + chunk_len as usize)]
+            } else {
+                &resp[..]
+            };
+            dumped.extend_from_slice(data);
+            cur_addr = cur_addr.saturating_add(chunk_len as u16);
+            remaining -= data.len().min(remaining);
+            if data.is_empty() {
+                break;
             }
-        })?;
-        let dev = api.open_path(&c_path)?;
-        dev.send_feature_report(&report)?;
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        Ok(())
+        }
+        Ok(dumped)
     }
 
     pub fn set_stage_color(&self, stage: u8, r: u8, g: u8, b: u8) -> Result<[u8; 8]> {
