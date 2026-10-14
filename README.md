@@ -12,11 +12,13 @@ Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wi
   <img src="LORGAR_Advanced_MSA10W_Wireless_Gaming_MouseBlack__3-1524438479.webp" alt="LORGAR MSA10W Wireless Gaming Mouse" width="620">
 </p>
 
-## Reverse-Engineering & Implementation Status
+## Status
 
-<p align="center">
-  <img src="assets/status.png" alt="Implementation Status" width="100%">
-</p>
+[![firmware](assets/badge-firmware.svg)](protocol/msa10w.md) [![protocol](assets/badge-protocol.svg)](protocol/msa10w.md) [![driver](assets/badge-driver.svg)](kernel/)
+
+[![progress map](assets/status.png)](protocol/msa10w.md)
+
+<sub>* Firmware NVRAM: percentage of configuration packets and hardware registers reverse-engineered from vendor software (<code>mouse.MSA10WR.dll</code>) and verified live on hardware. 100% native Linux driver and control stack.</sub>
 
 | Subsystem | Coverage | Documentation / Reference | Implementation |
 | :--- | :---: | :--- | :--- |
