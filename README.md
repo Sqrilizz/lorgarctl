@@ -67,6 +67,58 @@ Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wi
 
 ---
 
+## 🔬 Reverse-Engineering & "Mouse Hacking" Deep-Dive
+
+Through binary decompilation, PE disassembly (via [morluto/rea](https://github.com/morluto/rea), `objdump`, and Ghidra), and live USB traffic inspection, we reverse-engineered the entire hardware and software stack of the **LORGAR MSA10W**:
+
+### 1. OEM Hardware Platform & Real Origin
+* **OEM Manufacturer**: Dongguan Togran Electronics Technology Co., Ltd. (platforms **Togran TM271 / TM238**). LORGAR licenses and brands the hardware.
+* **Optical Sensor**: PixArt **PAW3395** (up to 26,000 DPI, 650 IPS, 50G acceleration).
+* **MCU Controller**: Holtek USB Flash MCU (`571R` family / HT68FB571).
+* **USB Interfaces & Endpoints**:
+  - `Interface 0` (`0x00`): Standard HID 3-button + wheel mouse (Endpoint `0x81` Interrupt IN).
+  - `Interface 1` (`0x01`): Standard HID keyboard / media keys (Endpoint `0x82` Interrupt IN).
+  - `Interface 2` (`0x02`): Vendor Config interface (`usage_page: 0xff10`, Endpoint `0x04` Interrupt OUT 64-byte, Endpoint `0x83` Interrupt IN 64-byte).
+
+### 2. Dual-Channel HID Architecture
+The mouse firmware strictly separates its protocol into two decoupled communication channels:
+1. **HID Feature Reports (8 bytes payload, EP0 Control)**:
+   - Used exclusively for real-time gaming runtime commands:
+     - `0x26`: On-the-fly DPI resolution changes per stage.
+     - `0x21`: Active DPI stage switching.
+     - `0x20`: Polling rate (125, 250, 500, 1000 Hz).
+     - `0x22` / `0x23`: RGB lighting mode and color selection.
+     - `0x82`: Periodic battery level and runtime state query.
+2. **HID Output Reports (Interrupt OUT, EP 04, 64-byte max packet)**:
+   - **NVRAM Registers (`0x01`..`0x07`)**: Sent via 33-byte frames `[0x00, 32 bytes data]` with `0xaa 0x55` header, validated with readback echo (`0xcc 0x33`):
+     - `0x01`: Active stage, lighting parameters.
+     - `0x02`: Sensor LOD (1 mm / 2 mm), sleep timeout (1..10 min), angle snapping, motion sync.
+     - `0x03`: 8-stage LED palette.
+     - `0x04`: Button debounce delay filter (1..20 ms) and Rapid Fire settings.
+     - `0x05` / `0x06`: Complete 8-stage DPI table storage in persistent NVRAM.
+     - `0x07`: Full button remapping table (Left, Right, Middle, Back, Forward, DPI Switch).
+   - **Flash Memory & Bootloader Control (Opcode `0x08`)**:
+     - `0x08 0x07`: NVRAM Profile synchronization.
+     - `0x08 0x08`: `ReadFlashData` — arbitrary flash memory dumping.
+     - `0x08 0x0d`: `ResetToBootMode` — switches MCU into USB Bootloader (DFU) mode.
+     - `0xC0` / `0xC1`: `WriteFlashData` — writes 32-byte executable microcode blocks.
+
+### 3. Firmware Container Reverse-Engineering
+* **Container Header**: Fixed `0x2000` (8,192 bytes) structure containing MCU model (`571R`), sensor (`PAW3395`), product metadata, and flash base destination address (`0x21e`).
+* **Checksum Algorithm**: Proprietary 32-bit inverted sum:
+  902542\text{Checksum} = \text{0x55555555} - \sum_{i=8}^{L} \text{byte}[i]902542
+* **Custom Firmware Builder**: `lorgarctl firmware create` and `lorgarctl firmware info` allow packing and validating binary containers 100% compatible with the factory flasher.
+
+### 4. Progress Matrix to Custom Firmware
+| Phase | Milestone | Status | Details |
+| :--- | :--- | :---: | :--- |
+| **Phase 1** | Runtime HID Protocol | **100% COMPLETE** | DPI, Polling, RGB, Battery, Sleep, Kernel DKMS |
+| **Phase 2** | Persistent Hardware NVRAM | **100% COMPLETE** | LOD, Debounce, Motion Sync, Angle Snap, Button Binds |
+| **Phase 3** | Firmware Binary Container | **100% COMPLETE** | Checksum algorithm, Header parser & builder (`firmware create`) |
+| **Phase 4** | Live Flasher Protocol Analysis | **100% COMPLETE** | Disassembled `HIDUsb.dll` & Togran flasher state machine |
+| **Phase 5** | Live Flash Dump to Disk | **IN PROGRESS** | Hardware wire connected (`093a:c600`), calibrating EP04 transfer |
+| **Phase 6** | Custom Microcode Flashing | **PLANNED** | End-to-end flashing of custom Holtek firmware payloads |
+
 ## Quick Start
 
 ### 1. Install System Dependencies
