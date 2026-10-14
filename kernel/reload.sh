@@ -63,4 +63,10 @@ echo "=== Done! Status: ==="
 "${RUN[@]}" dmesg | tail -n 15 | grep -iE "lorgar|hid" || true
 echo ""
 echo "Power supply devices:"
+for ((attempt = 0; attempt < 30; attempt++)); do
+    if compgen -G '/sys/class/power_supply/lorgar_mouse_battery_*' >/dev/null; then
+        break
+    fi
+    sleep 0.1
+done
 ls -ld /sys/class/power_supply/lorgar* 2>/dev/null || echo "No lorgar power_supply found yet"

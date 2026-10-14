@@ -6,6 +6,7 @@ PWD := $(shell pwd)
 HOSTCC ?= cc
 LLVM ?= $(if $(shell grep -sh '^CONFIG_CC_IS_CLANG=y' $(KDIR)/.config $(KDIR)/include/config/auto.conf),1,)
 MODDIR ?= /lib/modules/$(KERNELRELEASE)/extra
+MODULE_VERSION := $(shell sed -n 's/^PACKAGE_VERSION="\([^"]*\)"/\1/p' dkms.conf)
 
 .PHONY: default install dkms-install uninstall check live-check clean
 
@@ -34,6 +35,7 @@ check:
 	$(MAKE) protocol-test
 	./protocol-test
 	modinfo ./hid-lorgar.ko >/dev/null
+	test "$$(modinfo -F version ./hid-lorgar.ko)" = "$(MODULE_VERSION)"
 
 protocol-test: tests/protocol_test.c hid-lorgar-protocol.h
 	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -pedantic tests/protocol_test.c -o $@

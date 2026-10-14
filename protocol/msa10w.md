@@ -12,7 +12,8 @@ This document tracks reverse-engineered HID commands and report formats for the 
 | `0x22` | **CONFIRMED** | Set lighting mode |
 | `0x23` | **CONFIRMED** | Set lighting color |
 | `0x82` | **CONFIRMED** | Query device state / battery level |
-| `0x27` | **UNCONFIRMED** | Probably DPI-stage RGB color configuration |
+| `0x27` | **CONFIRMED** | Set the separate top DPI indicator color for one stage |
+| Output packet `0x03` | **CONFIRMED** | Set the regular RGB lighting palette; not the top DPI indicator |
 | Report `0x05`, Event `0x0b` | **HIGH CONFIDENCE** | Hardware DPI stage change event |
 | Report `0x05`, Event `0x0f` | **UNKNOWN** | Unknown vendor event payload |
 
@@ -161,9 +162,113 @@ confirmed response shape:
 Byte 7 is `0x52` (82%). The meaning of byte 0 is still unknown; accepting this
 observed prefix does not assign it a semantic name.
 
+An October 2026 low-battery observation produced a third stable shape:
+
+```text
+02 00 SS 80 01 00 00 BB DD 00 00 00 00 00 00 00 ...
+```
+
+Byte 2 (`SS`) is the active DPI stage index (`0..7`). Byte 7 (`BB`) is the
+battery percentage level (`0..100`). Byte 8 (`DD`) is `0x00` or `0x01`. An
+earlier overly strict check required `data[2] == 0x03` literally because
+stage 3 happened to be active during that first capture; validating
+`data[2] < DPI_STAGE_COUNT` resolves timeouts across all sensitivity stages.
+
+The mouse's sensitivity indicator was red at the same time. That observation is
+**not** independent evidence when the optional `battery_indicator` is enabled:
+it writes red to all eight stages for any reading `<= 20%`, so the driver can
+cause the red it then appears to confirm.
+
+### Full charge/discharge experiment (2026-10-07): byte 7 is state of charge
+
+The mouse was undocked and idle for a month. Repeated queries returned byte 7 =
+`0x04` unchanged across six queries in 90 seconds, then `0x06`. The cable was
+connected; the device re-enumerated as `093a:c600` and byte 7 rose:
+
+| Phase | PID | byte 8 | byte 7 | vendor event |
+| --- | --- | --- | --- | --- |
+| Undocked, idle | `c601` | `01` | `4`, then `6` | `05 0f 01 00 35` |
+| Charging, 12 min | `c600` | `00` | `35 → 41 → 45 → 49 → 57 → 63 → 73` | `05 11 XX 00 00` |
+| Undocked again | `c601` | `01` | `62 → 59 → 56 → 52 → 50`, then steady `50` | `05 0f 01 00 35` |
+
+**Byte 7 is confirmed as the battery percentage.** It is the only field that
+moved, it moved in the right direction under a controlled physical change, and it
+settled at a stable value in the same way in both modes.
+
+Two reported behaviours matter more than the confirmation itself:
+
+1. **The charge-mode reading is optimistic and converges after unplugging.** The
+   mouse ended a 12-minute charge at `73`, then corrected to a steady `50` within
+   about two minutes of leaving the cable. A UI that samples during charging will
+   show a value that later falls; that is the device, not a parsing error.
+2. **A long-idle mouse reported `4`/`6` for the same cell that reads `50` after a
+   charge cycle.** The deep-sleep or reserve-mode estimate was not the steady
+   state-of-charge value. Do not treat a first reading after a long idle period as
+   authoritative.
+
+**Byte 8 is a mode flag, not a fixed prefix.** It is `01` on the `c601` receiver
+and `00` while the `c600` cable device is attached. The parser accepts `0x00` or
+`0x01` and decodes nothing from it. Its meaning stays UNCONFIRMED: it may be a
+charging flag, a transport flag, or an unrelated state byte. `power_supply`
+status remains `Unknown` and nothing infers charging from the USB product ID.
+
+The strict matcher that earlier required `data[8] == 0x01` rejected every
+response while charging, which emptied the driver battery and made
+`lorgarctl battery` time out. That was a driver bug, not a protocol fact.
+
+The device also emits a **different** vendor event per mode: `0x0f` on `c601`,
+`0x11` on `c600`. The `0x0f` payload stayed `05 0f 01 00 35` across sessions in
+which byte 7 ranged from `4` to `91`, so `0x0f` is not the battery. The `0x11`
+data byte tracked byte 7 during charging, but its meaning is UNKNOWN and it is
+not decoded.
+
+### Request acknowledgement is not a response
+
+Under sustained polling on 2026-10-07 the device intermittently acknowledged a
+state query with a vendor event on interface `0xff11` while returning **no**
+64-byte state report at all:
+
+```text
+05 0f 00 20 08
+```
+
+`0x0f` is emitted per query, including queries that are never answered, so its
+presence says nothing about whether a state response follows. Both the kernel
+driver and user-space clients must treat the 64-byte report as the only
+confirmation, and must not treat the vendor event as a partial result.
+
+During one such window every query failed, userspace and kernel alike, and the
+condition cleared on its own within roughly a minute without physical input.
+Repeated tight polling is the most likely trigger, so retries are spaced at the
+kernel's proven 500 ms rather than back-to-back.
+
+**Unresolved:** whether this is a device sleep state, a request-rate limit, or a
+firmware quirk. It was not reproduced under `lorgarctl` polling every 18s while
+the kernel reported `online` continuously, so the practical guidance is to avoid
+sub-second polling loops.
+
 ---
 
-## 3. High-Confidence Vendor Input Events (`Usage Page: 0xff11`, Report `0x05`)
+## 3. Confirmed Output Reports
+
+### Output packet `0x03`: Set regular lighting palette
+
+The official MSA10WR device plugin serializes eight RGB entries into a 32-byte
+packet. A 64-byte HID output report carries that packet followed by zero
+padding:
+
+```text
+03 R0 G0 B0 R1 G1 B1 ... R7 G7 B7 00 00 00 00 00 00 CC [32 zero bytes]
+```
+
+`CC` is the one's complement of the low byte of the sum of bytes `0..30`, so
+the low byte of the sum of the complete 32-byte packet is `0xff`. A controlled
+Linux hardware test set all eight entries to violet. The user visually observed
+the regular lighting change while the separate top DPI indicator did not. The
+packet layout and checksum are confirmed for the tested `093a:c601` receiver;
+the semantic meaning and ordering of the eight entries remain unknown.
+
+## 4. High-Confidence Vendor Input Events (`Usage Page: 0xff11`, Report `0x05`)
 
 Interface `0xff11` uses report ID `05` with four payload bytes, giving five
 bytes in hidraw reads. Other collections share its hidraw node; they have
@@ -187,23 +292,26 @@ Observed packets during capture:
 
 ---
 
-## 4. Unconfirmed Hypotheses (Do Not Use in Production Core)
+## 5. Confirmed DPI Indicator Control
 
-### Command `0x27`: Set Stage RGB Color (Hypothesis)
+### Command `0x27`: Set Stage RGB Color
 ```text
 27 00 SS RR GG BB 00 00
 ```
 - `SS`: Target DPI stage index (`0x00` .. `0x07`)
 - `RR GG BB`: 24-bit RGB color values.
 
-The former duplicate hypothesis entries for `0x21` and `0x82` conflicted with
-the confirmed table and command descriptions above. Their existing confirmed
-status is retained. This editorial correction does not confirm any additional
-state fields.
+A controlled Linux test set stage `0` to blue with `0x27`. The user observed
+blue only on the separate top DPI indicator after physically switching DPI.
+All eight stages were then set to red, and another physical DPI switch showed
+red. Repeated programmatic `0x21` transitions between stages `0` and `1` also
+produced visible red flashes. Immediate `1 -> 0` restoration was not perceptible
+as a sensitivity change. The command, byte layout, stage targeting and physical
+target are confirmed for the tested `093a:c601` receiver.
 
 ---
 
-## 5. Packet Capture Roadmap for Phase 2
+## 6. Packet Capture Roadmap for Phase 2
 
 For upcoming reverse-engineering steps, targeted USBPcap recordings from LORGAR Platform on Windows will be saved using the following naming convention:
 
@@ -217,7 +325,7 @@ For upcoming reverse-engineering steps, targeted USBPcap recordings from LORGAR 
 - `startup.pcapng`
 - `battery.pcapng`
 
-## 6. Linux investigation, 2026-09-05
+## 7. Linux investigation, 2026-09-05
 
 ### Environment and method
 
@@ -303,11 +411,8 @@ claims of identical layouts on all c600/c601 firmware.
 
 ### Remaining experiments
 
-`0x27` remains UNCONFIRMED. Its function cannot be established from the existing
-Linux state query. Use the vendor application with USBPcap/usbmon and change one
-DPI-stage color at a time, repeat A/B/A, and record stage/color plus packet
-direction. Confirm the command, stage numbering and reserved fields together.
-Do not issue guessed `0x27` reports from this driver.
+`0x27` is confirmed for the tested receiver. Captures from the vendor
+application are still useful to compare behavior across firmware revisions.
 
 For `0x0f`, repeat the query-only experiment while independently recording
 awake/asleep, receiver-only, cable and charge conditions. Change just one

@@ -26,26 +26,33 @@ else
 fi
 
 if ! command -v dkms >/dev/null 2>&1; then
-    if command -v pacman >/dev/null 2>&1; then
-        "${RUN[@]}" pacman -S --needed dkms
-    else
-        echo "Install DKMS with the system package manager and rerun this script" >&2
-        exit 1
+    echo "Install DKMS with the system package manager and rerun this script" >&2
+    exit 1
+fi
+
+status="$("${RUN[@]}" dkms status -m "$MODULE" -v "$VERSION" 2>/dev/null || true)"
+if [ -n "$status" ]; then
+    for file in Makefile dkms.conf hid-lorgar.c hid-lorgar-protocol.h; do
+        if ! "${RUN[@]}" cmp -s "$DIR/$file" "$SOURCE_DIR/$file"; then
+            echo "$MODULE $VERSION is already registered with different source; bump PACKAGE_VERSION" >&2
+            exit 1
+        fi
+    done
+else
+    "${RUN[@]}" install -d -m 0755 "$SOURCE_DIR"
+    for file in Makefile dkms.conf hid-lorgar.c hid-lorgar-protocol.h; do
+        "${RUN[@]}" install -m 0644 "$DIR/$file" "$SOURCE_DIR/$file"
+    done
+    "${RUN[@]}" dkms add -m "$MODULE" -v "$VERSION"
+fi
+
+kernel_status="$(printf '%s\n' "$status" | grep -F ", $KERNEL," || true)"
+if ! grep -q ': installed' <<<"$kernel_status"; then
+    if ! grep -q ': built' <<<"$kernel_status"; then
+        "${RUN[@]}" dkms build -m "$MODULE" -v "$VERSION" -k "$KERNEL"
     fi
+    "${RUN[@]}" dkms install -m "$MODULE" -v "$VERSION" -k "$KERNEL"
 fi
-
-if "${RUN[@]}" dkms status -m "$MODULE" -v "$VERSION" 2>/dev/null | grep -q .; then
-    "${RUN[@]}" dkms remove -m "$MODULE" -v "$VERSION" --all
-fi
-
-"${RUN[@]}" install -d -m 0755 "$SOURCE_DIR"
-for file in Makefile dkms.conf hid-lorgar.c hid-lorgar-protocol.h; do
-    "${RUN[@]}" install -m 0644 "$DIR/$file" "$SOURCE_DIR/$file"
-done
-
-"${RUN[@]}" dkms add -m "$MODULE" -v "$VERSION"
-"${RUN[@]}" dkms build -m "$MODULE" -v "$VERSION" -k "$KERNEL"
-"${RUN[@]}" dkms install -m "$MODULE" -v "$VERSION" -k "$KERNEL"
 "${RUN[@]}" install -m 0644 "$PROJECT_DIR/udev/99-lorgar-msa10w.rules" /etc/udev/rules.d/99-lorgar-msa10w.rules
 "${RUN[@]}" install -m 0644 "$DIR/hid-lorgar.conf" /etc/modules-load.d/hid-lorgar.conf
 "${RUN[@]}" udevadm control --reload-rules
@@ -53,10 +60,17 @@ done
 "${RUN[@]}" udevadm trigger --subsystem-match=input --action=change
 "${RUN[@]}" udevadm settle
 
-systemctl --user disable --now lorgarctl-upower.service lorgarctl-tray.service lorgarctl-battery.timer 2>/dev/null || true
-"${RUN[@]}" systemctl disable --now lorgarctl-upower.service 2>/dev/null || true
 "${RUN[@]}" systemctl daemon-reload
 "${RUN[@]}" modprobe hid-lorgar
+
+for service in lorgarctl-upower.service lorgarctl-tray.service lorgarctl-battery.timer; do
+    if systemctl --user is-active --quiet "$service" 2>/dev/null; then
+        echo "Warning: conflicting user service is active: $service" >&2
+    fi
+done
+if "${RUN[@]}" systemctl is-active --quiet lorgarctl-upower.service 2>/dev/null; then
+    echo "Warning: conflicting system service is active: lorgarctl-upower.service" >&2
+fi
 
 installed_version="$(modinfo -F version hid_lorgar 2>/dev/null || true)"
 installed_path="$(modinfo -F filename hid_lorgar 2>/dev/null || true)"

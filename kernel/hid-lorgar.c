@@ -30,7 +30,6 @@
 #define USB_DEVICE_ID_LORGAR_MSA10W_WIRED 0xc600
 #define USB_DEVICE_ID_LORGAR_MSA10W_WIRELESS 0xc601
 
-#define LORGAR_CONFIG_REPORT_LEN 9
 #define LORGAR_MIN_DPI 100
 #define LORGAR_MAX_DPI 12000
 
@@ -43,11 +42,15 @@
 
 #define LORGAR_QUERY_INTERVAL_MS 60000
 #define LORGAR_QUERY_TIMEOUT_MS 2000
+#define LORGAR_STARTUP_QUERY_RETRY_MS 500
+#define LORGAR_STARTUP_QUERY_ATTEMPTS 3
+#define LORGAR_QUERY_TIMEOUTS_BEFORE_OFFLINE 2
 #define LORGAR_COMMAND_COOLDOWN_MS 20
 
 #define LORGAR_NOTIFY_LINK BIT(0)
 #define LORGAR_NOTIFY_BATTERY BIT(1)
 #define LORGAR_NOTIFY_DPI BIT(2)
+#define LORGAR_NOTIFY_INPUT BIT(3)
 
 enum lorgar_link_state {
 	LORGAR_LINK_UNKNOWN,
@@ -76,6 +79,9 @@ struct lorgar_shared_state {
 	u8 led_r;
 	u8 led_g;
 	u8 led_b;
+	bool battery_indicator_enabled;
+	u8 query_timeouts;
+	bool input_seen;
 };
 
 struct lorgar_device_ctx {
@@ -93,9 +99,13 @@ struct lorgar_drvdata {
 	struct power_supply_desc battery_desc;
 	char battery_name[64];
 	struct delayed_work battery_work;
+	struct delayed_work indicator_work;
 	struct work_struct notification_work;
 	struct mutex io_lock;
 	unsigned long last_command;
+	bool indicator_band_valid;
+	u8 indicator_band;
+	u8 startup_query_attempts;
 	int interface_number;
 	bool is_config_interface;
 };
@@ -165,7 +175,7 @@ static void lorgar_schedule_notification(struct lorgar_device_ctx *ctx,
 	spin_unlock_irqrestore(&ctx->state.lock, flags);
 }
 
-static void lorgar_kick_query(struct lorgar_device_ctx *ctx)
+static void lorgar_kick_indicator(struct lorgar_device_ctx *ctx)
 {
 	struct lorgar_drvdata *drv = NULL;
 	unsigned long flags;
@@ -174,32 +184,8 @@ static void lorgar_kick_query(struct lorgar_device_ctx *ctx)
 	if (ctx->config_hdev)
 		drv = hid_get_drvdata(ctx->config_hdev);
 	if (drv)
-		mod_delayed_work(system_wq, &drv->battery_work, 0);
+		mod_delayed_work(system_dfl_wq, &drv->indicator_work, 0);
 	spin_unlock_irqrestore(&ctx->state.lock, flags);
-}
-
-static void lorgar_notification_work(struct work_struct *work)
-{
-	struct lorgar_drvdata *drv =
-		container_of(work, struct lorgar_drvdata, notification_work);
-	struct lorgar_shared_state *shared = &drv->ctx->state;
-	unsigned long flags;
-	unsigned long notifications;
-
-	spin_lock_irqsave(&shared->lock, flags);
-	notifications = shared->notifications;
-	shared->notifications = 0;
-	spin_unlock_irqrestore(&shared->lock, flags);
-	if (notifications & LORGAR_NOTIFY_LINK)
-		sysfs_notify(&drv->hdev->dev.kobj, NULL, "hardware_status");
-	if (notifications & LORGAR_NOTIFY_DPI) {
-		sysfs_notify(&drv->hdev->dev.kobj, NULL, "dpi_stage");
-		sysfs_notify(&drv->hdev->dev.kobj, NULL, "dpi");
-	}
-	if ((notifications & LORGAR_NOTIFY_BATTERY) && drv->battery)
-		power_supply_changed(drv->battery);
-	if (notifications)
-		kobject_uevent(&drv->hdev->dev.kobj, KOBJ_CHANGE);
 }
 
 static const enum power_supply_property lorgar_battery_props[] = {
@@ -211,20 +197,77 @@ static const enum power_supply_property lorgar_battery_props[] = {
 	POWER_SUPPLY_PROP_MANUFACTURER,
 };
 
+static int lorgar_register_battery(struct lorgar_drvdata *drv)
+{
+	struct power_supply_config supply_config = { .drv_data = drv };
+	struct power_supply_desc *desc = &drv->battery_desc;
+	struct device *dev = &drv->hdev->dev;
+	struct power_supply *battery;
+
+	if (drv->battery)
+		return 0;
+	battery = devm_power_supply_register(dev, desc, &supply_config);
+	if (IS_ERR(battery))
+		return PTR_ERR(battery);
+	drv->battery = battery;
+	return 0;
+}
+
+static void lorgar_notification_work(struct work_struct *work)
+{
+	struct lorgar_drvdata *drv =
+		container_of(work, struct lorgar_drvdata, notification_work);
+	struct lorgar_shared_state *shared = &drv->ctx->state;
+	unsigned long flags;
+	unsigned long notifications;
+	bool battery_valid;
+	bool battery_registered = false;
+	int ret;
+
+	spin_lock_irqsave(&shared->lock, flags);
+	notifications = shared->notifications;
+	shared->notifications = 0;
+	battery_valid = shared->battery_valid;
+	spin_unlock_irqrestore(&shared->lock, flags);
+	if ((notifications & LORGAR_NOTIFY_BATTERY) && battery_valid &&
+	    !drv->battery) {
+		ret = lorgar_register_battery(drv);
+		if (ret < 0)
+			hid_warn(drv->hdev,
+				 "battery registration failed: %d\n", ret);
+		else
+			battery_registered = true;
+	}
+	if (notifications & LORGAR_NOTIFY_LINK)
+		sysfs_notify(&drv->hdev->dev.kobj, NULL, "hardware_status");
+	if (notifications & LORGAR_NOTIFY_INPUT)
+		sysfs_notify(&drv->hdev->dev.kobj, NULL, "input_seen");
+	if (notifications & LORGAR_NOTIFY_DPI) {
+		sysfs_notify(&drv->hdev->dev.kobj, NULL, "dpi_stage");
+		sysfs_notify(&drv->hdev->dev.kobj, NULL, "dpi");
+	}
+	if ((notifications & LORGAR_NOTIFY_BATTERY) && drv->battery &&
+	    !battery_registered)
+		power_supply_changed(drv->battery);
+	if (notifications)
+		kobject_uevent(&drv->hdev->dev.kobj, KOBJ_CHANGE);
+}
+
 static int lorgar_send_feature(struct lorgar_drvdata *drv, const u8 *payload,
 			       size_t len)
 {
-	u8 report[LORGAR_CONFIG_REPORT_LEN] = { 0 };
+	u8 *report;
 	unsigned long earliest;
 	unsigned long remaining;
 	int ret;
 
 	if (!drv->is_config_interface)
 		return -ENODEV;
-	if (len > LORGAR_CONFIG_REPORT_LEN - 1)
+	if (len != LORGAR_FEATURE_REPORT_LEN)
 		return -EINVAL;
-	report[0] = 0x00;
-	memcpy(&report[1], payload, len);
+	report = kmemdup(payload, len, GFP_KERNEL);
+	if (!report)
+		return -ENOMEM;
 
 	mutex_lock(&drv->io_lock);
 	earliest = drv->last_command + msecs_to_jiffies(LORGAR_COMMAND_COOLDOWN_MS);
@@ -232,13 +275,74 @@ static int lorgar_send_feature(struct lorgar_drvdata *drv, const u8 *payload,
 		remaining = earliest - jiffies;
 		msleep(jiffies_to_msecs(remaining) + 1);
 	}
-	ret = hid_hw_raw_request(drv->hdev, 0x00, report, sizeof(report),
+	ret = hid_hw_raw_request(drv->hdev, 0x00, report, len,
 				 HID_FEATURE_REPORT, HID_REQ_SET_REPORT);
 	drv->last_command = jiffies;
 	mutex_unlock(&drv->io_lock);
+	kfree(report);
 	if (ret < 0)
 		return ret;
-	return ret == LORGAR_CONFIG_REPORT_LEN ? 0 : -EIO;
+	return ret == (int)len ? 0 : -EIO;
+}
+
+static void lorgar_indicator_work(struct work_struct *work)
+{
+	struct lorgar_drvdata *drv =
+		container_of(to_delayed_work(work), struct lorgar_drvdata,
+			     indicator_work);
+	struct lorgar_shared_state *shared = &drv->ctx->state;
+	u8 color[LORGAR_FEATURE_REPORT_LEN];
+	unsigned long flags;
+	u8 capacity;
+	u8 band;
+	bool enabled;
+	bool battery_valid;
+	bool online;
+	bool palette_current;
+	int ret;
+	int i;
+
+	spin_lock_irqsave(&shared->lock, flags);
+	enabled = shared->battery_indicator_enabled;
+	battery_valid = shared->battery_valid;
+	capacity = shared->battery_capacity;
+	online = shared->link_state == LORGAR_LINK_ONLINE;
+	spin_unlock_irqrestore(&shared->lock, flags);
+	if (!enabled || !online || !battery_valid)
+		return;
+	band = lorgar_battery_indicator_band(capacity);
+	palette_current = drv->indicator_band_valid &&
+		drv->indicator_band == band;
+	if (palette_current)
+		return;
+	for (i = 0; i < LORGAR_DPI_STAGE_COUNT; i++) {
+		lorgar_build_stage_color_report(color, i, capacity);
+		ret = lorgar_send_feature(drv, color, sizeof(color));
+		if (ret < 0) {
+			hid_warn(drv->hdev,
+				 "battery indicator color failed: %d\n", ret);
+			return;
+		}
+	}
+	drv->indicator_band = band;
+	drv->indicator_band_valid = true;
+}
+
+static bool lorgar_note_timeout(struct lorgar_shared_state *shared)
+{
+	if (shared->query_timeouts < LORGAR_QUERY_TIMEOUTS_BEFORE_OFFLINE)
+		shared->query_timeouts++;
+	if (shared->query_timeouts < LORGAR_QUERY_TIMEOUTS_BEFORE_OFFLINE)
+		return false;
+	if (shared->link_state == LORGAR_LINK_UNRESPONSIVE)
+		return false;
+	shared->link_state = LORGAR_LINK_UNRESPONSIVE;
+	return true;
+}
+
+static void lorgar_note_response(struct lorgar_shared_state *shared)
+{
+	shared->query_timeouts = 0;
 }
 
 static int lorgar_begin_query(struct lorgar_drvdata *drv)
@@ -256,6 +360,8 @@ static int lorgar_begin_query(struct lorgar_drvdata *drv)
 	}
 	shared->query_pending = true;
 	shared->query_deadline = jiffies + msecs_to_jiffies(LORGAR_QUERY_TIMEOUT_MS);
+	if (drv->startup_query_attempts < LORGAR_STARTUP_QUERY_ATTEMPTS)
+		drv->startup_query_attempts++;
 	spin_unlock_irqrestore(&shared->lock, flags);
 
 	ret = lorgar_send_feature(drv, command, sizeof(command));
@@ -263,9 +369,11 @@ static int lorgar_begin_query(struct lorgar_drvdata *drv)
 		spin_lock_irqsave(&shared->lock, flags);
 		shared->query_pending = false;
 		shared->next_query = jiffies + msecs_to_jiffies(LORGAR_QUERY_INTERVAL_MS);
-		link_changed = shared->link_state != LORGAR_LINK_UNRESPONSIVE;
-		shared->link_state = LORGAR_LINK_UNRESPONSIVE;
+		if (lorgar_note_timeout(shared))
+			link_changed = true;
 		spin_unlock_irqrestore(&shared->lock, flags);
+		hid_warn_ratelimited(drv->hdev, "state query write failed: %d\n",
+				     ret);
 		if (link_changed)
 			lorgar_schedule_notification(drv->ctx,
 					     LORGAR_NOTIFY_LINK |
@@ -282,9 +390,11 @@ static void lorgar_battery_work(struct work_struct *work)
 	struct lorgar_shared_state *shared = &drv->ctx->state;
 	unsigned long flags;
 	unsigned long delay;
+	unsigned int next_delay_ms;
 	bool timed_out = false;
 	bool link_changed = false;
 	bool query_now = false;
+	bool retry_now = false;
 
 	spin_lock_irqsave(&shared->lock, flags);
 	if (shared->query_pending) {
@@ -292,12 +402,16 @@ static void lorgar_battery_work(struct work_struct *work)
 			delay = shared->query_deadline - jiffies;
 		} else {
 			shared->query_pending = false;
+			retry_now = !shared->battery_valid &&
+				drv->startup_query_attempts <
+					LORGAR_STARTUP_QUERY_ATTEMPTS;
+			next_delay_ms = retry_now ? LORGAR_STARTUP_QUERY_RETRY_MS :
+				LORGAR_QUERY_INTERVAL_MS;
 			shared->next_query = jiffies +
-				msecs_to_jiffies(LORGAR_QUERY_INTERVAL_MS);
-			link_changed =
-				shared->link_state != LORGAR_LINK_UNRESPONSIVE;
-			shared->link_state = LORGAR_LINK_UNRESPONSIVE;
-			delay = msecs_to_jiffies(LORGAR_QUERY_INTERVAL_MS);
+				msecs_to_jiffies(next_delay_ms);
+			if (lorgar_note_timeout(shared))
+				link_changed = true;
+			delay = msecs_to_jiffies(next_delay_ms);
 			timed_out = true;
 		}
 	} else if (time_before(jiffies, shared->next_query)) {
@@ -308,13 +422,18 @@ static void lorgar_battery_work(struct work_struct *work)
 	}
 	spin_unlock_irqrestore(&shared->lock, flags);
 
-	if (timed_out && link_changed)
-		lorgar_schedule_notification(drv->ctx,
-					     LORGAR_NOTIFY_LINK |
-					     LORGAR_NOTIFY_BATTERY);
+	if (timed_out) {
+		hid_warn_ratelimited(drv->hdev,
+				     "state query timed out after %u ms\n",
+				     LORGAR_QUERY_TIMEOUT_MS);
+		if (link_changed)
+			lorgar_schedule_notification(drv->ctx,
+						     LORGAR_NOTIFY_LINK |
+						     LORGAR_NOTIFY_BATTERY);
+	}
 	if (query_now && lorgar_begin_query(drv) < 0)
 		delay = msecs_to_jiffies(LORGAR_QUERY_INTERVAL_MS);
-	mod_delayed_work(system_wq, &drv->battery_work,
+	mod_delayed_work(system_dfl_wq, &drv->battery_work,
 			 max_t(unsigned long, 1, delay));
 }
 
@@ -380,6 +499,22 @@ static ssize_t hardware_status_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(hardware_status);
 
+static ssize_t input_seen_show(struct device *dev,
+			       struct device_attribute *attribute, char *buf)
+{
+	struct lorgar_drvdata *drv = hid_get_drvdata(to_hid_device(dev));
+	unsigned long flags;
+	bool seen;
+
+	if (!drv || !drv->ctx)
+		return -ENODEV;
+	spin_lock_irqsave(&drv->ctx->state.lock, flags);
+	seen = drv->ctx->state.input_seen;
+	spin_unlock_irqrestore(&drv->ctx->state.lock, flags);
+	return sysfs_emit(buf, "%u\n", seen);
+}
+static DEVICE_ATTR_RO(input_seen);
+
 static ssize_t dpi_show(struct device *dev, struct device_attribute *attribute,
 			char *buf)
 {
@@ -411,6 +546,7 @@ static ssize_t dpi_store(struct device *dev, struct device_attribute *attribute,
 	u8 command[8] = { LORGAR_CMD_SET_DPI };
 	u8 stage;
 	u32 dpi;
+	bool stale;
 	int ret;
 
 	if (!drv || !drv->ctx)
@@ -433,9 +569,17 @@ static ssize_t dpi_store(struct device *dev, struct device_attribute *attribute,
 	if (ret < 0)
 		return ret;
 	spin_lock_irqsave(&shared->lock, flags);
-	shared->stage_dpis[stage] = dpi;
-	shared->stage_dpi_valid[stage] = true;
+	stale = !shared->active_stage_valid ||
+		shared->active_dpi_stage != stage;
+	if (stale) {
+		shared->stage_dpi_valid[stage] = false;
+	} else {
+		shared->stage_dpis[stage] = dpi;
+		shared->stage_dpi_valid[stage] = true;
+	}
 	spin_unlock_irqrestore(&shared->lock, flags);
+	if (stale)
+		lorgar_schedule_notification(drv->ctx, LORGAR_NOTIFY_DPI);
 	return count;
 }
 static DEVICE_ATTR_RW(dpi);
@@ -472,7 +616,7 @@ static ssize_t dpi_stage_store(struct device *dev,
 	ret = kstrtou8(buf, 0, &stage);
 	if (ret < 0 || stage >= LORGAR_DPI_STAGE_COUNT)
 		return -EINVAL;
-	command[3] = stage;
+	lorgar_build_active_stage_report(command, stage);
 	ret = lorgar_send_feature(drv, command, sizeof(command));
 	if (ret < 0)
 		return ret;
@@ -664,13 +808,57 @@ static ssize_t led_color_store(struct device *dev,
 }
 static DEVICE_ATTR_RW(led_color);
 
+static ssize_t battery_indicator_show(struct device *dev,
+				      struct device_attribute *attribute,
+				      char *buf)
+{
+	struct lorgar_drvdata *drv = hid_get_drvdata(to_hid_device(dev));
+	unsigned long flags;
+	bool enabled;
+
+	if (!drv || !drv->ctx)
+		return -ENODEV;
+	spin_lock_irqsave(&drv->ctx->state.lock, flags);
+	enabled = drv->ctx->state.battery_indicator_enabled;
+	spin_unlock_irqrestore(&drv->ctx->state.lock, flags);
+	return sysfs_emit(buf, "%u\n", enabled);
+}
+
+static ssize_t battery_indicator_store(struct device *dev,
+				       struct device_attribute *attribute,
+				       const char *buf, size_t count)
+{
+	struct lorgar_drvdata *drv = hid_get_drvdata(to_hid_device(dev));
+	unsigned long flags;
+	bool enabled;
+	int ret;
+
+	if (!drv || !drv->ctx)
+		return -ENODEV;
+	ret = kstrtobool(buf, &enabled);
+	if (ret < 0)
+		return ret;
+	cancel_delayed_work_sync(&drv->indicator_work);
+	spin_lock_irqsave(&drv->ctx->state.lock, flags);
+	drv->ctx->state.battery_indicator_enabled = enabled;
+	spin_unlock_irqrestore(&drv->ctx->state.lock, flags);
+	if (enabled) {
+		drv->indicator_band_valid = false;
+		mod_delayed_work(system_dfl_wq, &drv->indicator_work, 0);
+	}
+	return count;
+}
+static DEVICE_ATTR_RW(battery_indicator);
+
 static struct attribute *lorgar_attrs[] = {
 	&dev_attr_hardware_status.attr,
+	&dev_attr_input_seen.attr,
 	&dev_attr_dpi.attr,
 	&dev_attr_dpi_stage.attr,
 	&dev_attr_polling_rate.attr,
 	&dev_attr_led_mode.attr,
 	&dev_attr_led_color.attr,
+	&dev_attr_battery_indicator.attr,
 	NULL,
 };
 
@@ -685,9 +873,11 @@ static int lorgar_raw_event(struct hid_device *hdev, struct hid_report *report,
 	struct lorgar_shared_state *shared;
 	unsigned long flags;
 	bool battery_changed;
+	bool battery_notify;
 	bool link_changed;
 	bool stage_changed;
 	bool physical_activity;
+	bool input_changed;
 	u8 capacity;
 	u8 stage;
 
@@ -699,18 +889,22 @@ static int lorgar_raw_event(struct hid_device *hdev, struct hid_report *report,
 		spin_lock_irqsave(&shared->lock, flags);
 		battery_changed = !shared->battery_valid ||
 			shared->battery_capacity != capacity;
+		battery_notify = battery_changed || !drv->battery;
 		link_changed = shared->link_state != LORGAR_LINK_ONLINE;
 		shared->battery_capacity = capacity;
 		shared->battery_valid = true;
 		shared->link_state = LORGAR_LINK_ONLINE;
+		lorgar_note_response(shared);
 		shared->query_pending = false;
 		shared->next_query = jiffies +
 			msecs_to_jiffies(LORGAR_QUERY_INTERVAL_MS);
 		spin_unlock_irqrestore(&shared->lock, flags);
 		if (battery_changed || link_changed)
+			lorgar_kick_indicator(drv->ctx);
+		if (battery_notify || link_changed)
 			lorgar_schedule_notification(
 				drv->ctx,
-				(battery_changed ? LORGAR_NOTIFY_BATTERY : 0) |
+				(battery_notify ? LORGAR_NOTIFY_BATTERY : 0) |
 				(link_changed ? LORGAR_NOTIFY_LINK : 0));
 		return 0;
 	}
@@ -721,29 +915,26 @@ static int lorgar_raw_event(struct hid_device *hdev, struct hid_report *report,
 			shared->active_dpi_stage != stage;
 		shared->active_dpi_stage = stage;
 		shared->active_stage_valid = true;
-		link_changed = shared->link_state != LORGAR_LINK_ONLINE;
-		shared->link_state = LORGAR_LINK_ONLINE;
+		input_changed = !shared->input_seen;
+		shared->input_seen = true;
 		spin_unlock_irqrestore(&shared->lock, flags);
-		if (stage_changed || link_changed)
+		if (stage_changed || input_changed)
 			lorgar_schedule_notification(
 				drv->ctx,
 				(stage_changed ? LORGAR_NOTIFY_DPI : 0) |
-				(link_changed ? LORGAR_NOTIFY_LINK : 0));
+				(input_changed ? LORGAR_NOTIFY_INPUT : 0));
 		return 0;
 	}
 
 	physical_activity = drv->interface_number == 0 && size > 0;
 	if (physical_activity) {
 		spin_lock_irqsave(&shared->lock, flags);
-		link_changed = shared->link_state != LORGAR_LINK_ONLINE;
-		shared->link_state = LORGAR_LINK_ONLINE;
-		if (link_changed && !shared->query_pending)
-			shared->next_query = jiffies;
+		input_changed = !shared->input_seen;
+		shared->input_seen = true;
 		spin_unlock_irqrestore(&shared->lock, flags);
-		if (link_changed) {
-			lorgar_schedule_notification(drv->ctx, LORGAR_NOTIFY_LINK);
-			lorgar_kick_query(drv->ctx);
-		}
+		if (input_changed)
+			lorgar_schedule_notification(drv->ctx,
+						     LORGAR_NOTIFY_INPUT);
 	}
 	return 0;
 }
@@ -766,7 +957,6 @@ static int lorgar_probe(struct hid_device *hdev,
 {
 	struct lorgar_drvdata *drv;
 	struct lorgar_device_ctx *ctx = NULL;
-	struct power_supply_config supply_config = { 0 };
 	struct usb_interface *interface;
 	struct usb_device *udev = NULL;
 	unsigned long flags;
@@ -805,9 +995,17 @@ static int lorgar_probe(struct hid_device *hdev,
 	mutex_init(&drv->io_lock);
 	INIT_WORK(&drv->notification_work, lorgar_notification_work);
 	INIT_DELAYED_WORK(&drv->battery_work, lorgar_battery_work);
+	INIT_DELAYED_WORK(&drv->indicator_work, lorgar_indicator_work);
 	hid_set_drvdata(hdev, drv);
 	if (!drv->is_config_interface)
 		return 0;
+	snprintf(drv->battery_name, sizeof(drv->battery_name),
+		 "lorgar_mouse_battery_%s", dev_name(&hdev->dev));
+	drv->battery_desc.name = drv->battery_name;
+	drv->battery_desc.type = POWER_SUPPLY_TYPE_BATTERY;
+	drv->battery_desc.properties = lorgar_battery_props;
+	drv->battery_desc.num_properties = ARRAY_SIZE(lorgar_battery_props);
+	drv->battery_desc.get_property = lorgar_battery_get_property;
 
 	spin_lock_irqsave(&ctx->state.lock, flags);
 	if (ctx->config_hdev) {
@@ -822,27 +1020,11 @@ static int lorgar_probe(struct hid_device *hdev,
 	if (ret)
 		goto err_config;
 
-	snprintf(drv->battery_name, sizeof(drv->battery_name),
-		 "lorgar_mouse_battery_%s", dev_name(&hdev->dev));
-	drv->battery_desc.name = drv->battery_name;
-	drv->battery_desc.type = POWER_SUPPLY_TYPE_BATTERY;
-	drv->battery_desc.properties = lorgar_battery_props;
-	drv->battery_desc.num_properties = ARRAY_SIZE(lorgar_battery_props);
-	drv->battery_desc.get_property = lorgar_battery_get_property;
-	supply_config.drv_data = drv;
-	drv->battery = devm_power_supply_register(&hdev->dev, &drv->battery_desc,
-						  &supply_config);
-	if (IS_ERR(drv->battery)) {
-		ret = PTR_ERR(drv->battery);
-		drv->battery = NULL;
-		goto err_sysfs;
-	}
-	schedule_delayed_work(&drv->battery_work, msecs_to_jiffies(1000));
+	lorgar_schedule_notification(ctx, LORGAR_NOTIFY_BATTERY);
+	mod_delayed_work(system_dfl_wq, &drv->battery_work, 0);
 	hid_info(hdev, "LORGAR MSA10W driver ready\n");
 	return 0;
 
-err_sysfs:
-	sysfs_remove_group(&hdev->dev.kobj, &lorgar_attr_group);
 err_config:
 	spin_lock_irqsave(&ctx->state.lock, flags);
 	if (ctx->config_hdev == hdev)
@@ -863,6 +1045,7 @@ static void lorgar_remove(struct hid_device *hdev)
 
 	if (drv && drv->is_config_interface) {
 		cancel_delayed_work_sync(&drv->battery_work);
+		cancel_delayed_work_sync(&drv->indicator_work);
 		spin_lock_irqsave(&drv->ctx->state.lock, flags);
 		if (drv->ctx->config_hdev == hdev)
 			drv->ctx->config_hdev = NULL;
@@ -897,4 +1080,4 @@ module_hid_driver(lorgar_driver);
 MODULE_AUTHOR("Sqrilizz");
 MODULE_DESCRIPTION("HID driver for LORGAR MSA10W Wireless/Wired Gaming Mouse");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("2.0.2");
+MODULE_VERSION("2.3.4");
