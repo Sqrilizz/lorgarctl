@@ -30,7 +30,7 @@ Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wi
 
 [![firmware](assets/badge-firmware.svg)](protocol/msa10w.md) [![protocol](assets/badge-protocol.svg)](protocol/msa10w.md) [![driver](assets/badge-driver.svg)](kernel/) [![bootloader](assets/badge-bootloader.svg)](protocol/msa10w.md#8-firmware-architecture-container-format--flashing-protocols-reverse-engineered-via-rea)
 
-[![progress map](assets/status.png)](protocol/msa10w.md)
+[![progress map](assets/status.svg)](protocol/msa10w.md)
 
 <sub>* Firmware, Hardware & Protocol: percentage of hardware registers, NVRAM packets, bootloader commands, and firmware container specifications reverse-engineered from vendor binaries (<code>mouse.MSA10WR.dll</code>, <code>HIDUsb.dll</code>, Togran TM271 OEM codebase) and validated on hardware. 100% native open-source Linux stack.</sub>
 
