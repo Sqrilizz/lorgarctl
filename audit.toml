@@ -1,0 +1,7 @@
+[advisories]
+ignore = [
+    "RUSTSEC-2021-0145", # atty: potential unaligned read (Windows), transitive build-dep of ksni -> dbus-codegen
+    "RUSTSEC-2021-0139", # ansi_term: unmaintained, transitive build-dep of ksni -> dbus-codegen
+    "RUSTSEC-2020-0071", # clap 2: unmaintained, transitive build-dep of ksni -> dbus-codegen
+    "RUSTSEC-2024-0375", # clap 2: unmaintained
+]

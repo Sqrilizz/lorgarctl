@@ -8,9 +8,16 @@ on:
   schedule:
     - cron: "0 6 * * 1"
 
+permissions:
+  checks: write
+  contents: read
+
 jobs:
   audit:
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - name: Install system dependencies
@@ -21,3 +28,4 @@ jobs:
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          ignore: RUSTSEC-2021-0145, RUSTSEC-2021-0139, RUSTSEC-2020-0071, RUSTSEC-2024-0375
