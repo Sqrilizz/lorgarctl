@@ -529,3 +529,19 @@ OP 20 A3 A2 A1 A0 [32 data bytes] CS
 - `0x20`: Chunk length (32 bytes)
 - `A3..A0`: 32-bit big-endian target flash address
 - `CS`: Checksum: `(0x55 - sum(bytes[0..38])) & 0xFF`
+
+### 8.4 Live Hardware Onboard Memory Dump Protocol (Validated on Hardware)
+Extracted live from `093a:c600` via Interface 2 (`0xff10`) 8-byte Feature Query commands with 64-byte Input Report readback on Endpoint `0x83`:
+- **`0x82`**: Battery & Device State (battery level, wire/wireless status, active DPI stage)
+- **`0x8e`**: Hardware Serial / MCU UID & Security Nonce
+- **`0xa3`**: 8-Stage DPI RGB Indicator Palette (Red, Orange, Yellow, Green, Blue, Cyan, Violet, White)
+- **`0xa4`**: Primary Button Mapping Table (`f0` Left, `f1` Right, `f2` Mid, `f4` Back, `f3` Forward, `03...` DPI Loop)
+- **`0xa5`**: Secondary Button Mapping Table
+- **`0xa6`**: Factory 8-Stage DPI Table (16-bit little-endian: 800, 1600, 2400, 3200, 6400, 12000, 8200, 6400 DPI)
+- **`0xa7`**: LED Indicator Configuration & Effects
+- **`0xf0`**: PixArt PAW3395 Sensor OTP Calibration ROM
+
+All 8 banks (512 bytes) are dumped into a unified binary or annotated JSON via:
+```bash
+lorgarctl firmware dump [--output msa10w_factory_dump.bin]
+```

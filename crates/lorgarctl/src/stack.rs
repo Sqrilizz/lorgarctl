@@ -1233,61 +1233,147 @@ fn handle_firmware(cli: &Cli, sub: &FirmwareCommands) -> Result<()> {
             output: out_path,
         } => {
             let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
-            let dumped = dev.dump_flash(*addr, *len)?;
-            if let Some(path) = out_path {
-                std::fs::write(path, &dumped)?;
-                if cli.json {
-                    output(
-                        &json!({
-                            "ok": true,
-                            "addr": addr,
-                            "bytes": dumped.len(),
-                            "path": path.display().to_string(),
-                        }),
-                        cli.json,
-                    )?;
-                } else {
-                    writeln!(
-                        std::io::stdout().lock(),
-                        "{}",
-                        format!(
-                            "Dumped {} bytes from flash addr 0x{:04X} to {}",
-                            dumped.len(),
-                            addr,
-                            path.display()
-                        )
-                        .green()
-                        .bold()
-                    )?;
-                }
-            } else {
-                let hex_str: String = dumped.iter().map(|b| format!("{:02x}", b)).collect();
-                if cli.json {
-                    output(
-                        &json!({
-                            "ok": true,
-                            "addr": addr,
-                            "bytes": dumped.len(),
-                            "hex": hex_str,
-                        }),
-                        cli.json,
-                    )?;
+            if *addr == 0 && *len == 256 {
+                let dump = dev.dump_onboard_memory()?;
+                let raw_bytes = dump.raw_bytes();
+
+                if let Some(path) = out_path {
+                    if path.extension().is_some_and(|ext| ext == "json") {
+                        let json_str = serde_json::to_string_pretty(&dump)?;
+                        std::fs::write(path, json_str)?;
+                    } else {
+                        std::fs::write(path, &raw_bytes)?;
+                    }
+
+                    if cli.json {
+                        output(
+                            &json!({
+                                "ok": true,
+                                "banks": dump.banks.len(),
+                                "bytes": raw_bytes.len(),
+                                "path": path.display().to_string(),
+                                "dpi_stages": dump.parse_dpi_stages(),
+                                "rgb_palette": dump.parse_rgb_palette(),
+                            }),
+                            cli.json,
+                        )?;
+                    } else {
+                        let mut out = std::io::stdout().lock();
+                        writeln!(
+                            out,
+                            "{}",
+                            format!(
+                                "Successfully dumped {} bytes ({} hardware banks) to {}",
+                                raw_bytes.len(),
+                                dump.banks.len(),
+                                path.display()
+                            )
+                            .green()
+                            .bold()
+                        )?;
+                        if let Some(stages) = dump.parse_dpi_stages() {
+                            writeln!(out, "  Parsed Hardware DPI Stages: {:?}", stages)?;
+                        }
+                    }
+                } else if cli.json {
+                    output(&dump, cli.json)?;
                 } else {
                     let mut out = std::io::stdout().lock();
                     writeln!(
                         out,
                         "{}",
-                        format!("Flash dump: 0x{:04X} ({} bytes)", addr, dumped.len())
-                            .cyan()
+                        "LORGAR MSA10W Onboard Memory Dump (8 Hardware Banks)"
+                            .white()
                             .bold()
                     )?;
-                    for (i, chunk) in dumped.chunks(16).enumerate() {
-                        let offset = addr + (i * 16) as u16;
-                        write!(out, "{:04x}: ", offset)?;
-                        for b in chunk {
-                            write!(out, "{:02x} ", b)?;
+                    for bank in &dump.banks {
+                        writeln!(
+                            out,
+                            "  Bank 0x{:02X} ({}) - {} bytes:",
+                            bank.opcode,
+                            bank.name.cyan(),
+                            bank.data.len()
+                        )?;
+                        for (i, chunk) in bank.data.chunks(16).enumerate() {
+                            let mut hex_s = String::new();
+                            let mut asc_s = String::new();
+                            for &b in chunk {
+                                use std::fmt::Write;
+                                let _ = write!(hex_s, "{:02x} ", b);
+                                asc_s.push(if (32..127).contains(&b) {
+                                    b as char
+                                } else {
+                                    '.'
+                                });
+                            }
+                            writeln!(out, "    {:02x}: {:48} |{}|", i * 16, hex_s, asc_s)?;
                         }
-                        writeln!(out)?;
+                    }
+                    if let Some(stages) = dump.parse_dpi_stages() {
+                        writeln!(
+                            out,
+                            "  {}",
+                            format!("Parsed DPI Stages: {:?}", stages).yellow().bold()
+                        )?;
+                    }
+                }
+            } else {
+                let dumped = dev.dump_flash(*addr, *len)?;
+                if let Some(path) = out_path {
+                    std::fs::write(path, &dumped)?;
+                    if cli.json {
+                        output(
+                            &json!({
+                                "ok": true,
+                                "addr": addr,
+                                "bytes": dumped.len(),
+                                "path": path.display().to_string(),
+                            }),
+                            cli.json,
+                        )?;
+                    } else {
+                        writeln!(
+                            std::io::stdout().lock(),
+                            "{}",
+                            format!(
+                                "Dumped {} bytes from flash addr 0x{:04X} to {}",
+                                dumped.len(),
+                                addr,
+                                path.display()
+                            )
+                            .green()
+                            .bold()
+                        )?;
+                    }
+                } else {
+                    let hex_str: String = dumped.iter().map(|b| format!("{:02x}", b)).collect();
+                    if cli.json {
+                        output(
+                            &json!({
+                                "ok": true,
+                                "addr": addr,
+                                "bytes": dumped.len(),
+                                "hex": hex_str,
+                            }),
+                            cli.json,
+                        )?;
+                    } else {
+                        let mut out = std::io::stdout().lock();
+                        writeln!(
+                            out,
+                            "{}",
+                            format!("Flash dump: 0x{:04X} ({} bytes)", addr, dumped.len())
+                                .cyan()
+                                .bold()
+                        )?;
+                        for (i, chunk) in dumped.chunks(16).enumerate() {
+                            let offset = addr + (i * 16) as u16;
+                            write!(out, "{:04x}: ", offset)?;
+                            for b in chunk {
+                                write!(out, "{:02x} ", b)?;
+                            }
+                            writeln!(out)?;
+                        }
                     }
                 }
             }

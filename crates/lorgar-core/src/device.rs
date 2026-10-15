@@ -294,6 +294,23 @@ impl Msa10w {
         Ok(dumped)
     }
 
+    pub fn dump_onboard_memory(&self) -> Result<crate::firmware::OnboardMemoryDump> {
+        let mut banks = Vec::with_capacity(crate::firmware::ONBOARD_MEMORY_BANKS.len());
+        let mut total_bytes = 0;
+        for &(op, name) in &crate::firmware::ONBOARD_MEMORY_BANKS {
+            let mut payload = [0u8; 8];
+            payload[0] = op;
+            let resp = self.query_feature(&payload, 1000)?;
+            total_bytes += resp.len();
+            banks.push(crate::firmware::MemoryBank {
+                opcode: op,
+                name: name.to_string(),
+                data: resp,
+            });
+        }
+        Ok(crate::firmware::OnboardMemoryDump { banks, total_bytes })
+    }
+
     pub fn set_stage_color(&self, stage: u8, r: u8, g: u8, b: u8) -> Result<[u8; 8]> {
         let payload = build_set_stage_color_payload(stage, r, g, b)?;
         self.transport.send_feature_command(&payload)?;

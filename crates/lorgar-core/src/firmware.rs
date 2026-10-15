@@ -4,6 +4,65 @@ pub const FIRMWARE_HEADER_SIZE: usize = 0x2000;
 pub const FIRMWARE_CHECKSUM_SEED: u32 = 0x55555555;
 pub const FLASH_WRITE_CHUNK_SIZE: usize = 32;
 
+/// Known onboard hardware memory banks readable via HID Feature Query (Report ID 0)
+pub const ONBOARD_MEMORY_BANKS: [(u8, &str); 8] = [
+    (0x82, "battery_and_device_state"),
+    (0x8e, "mcu_uid_and_security_bank"),
+    (0xa3, "dpi_stage_rgb_palette"),
+    (0xa4, "button_mapping_primary"),
+    (0xa5, "button_mapping_secondary"),
+    (0xa6, "dpi_stages_table"),
+    (0xa7, "led_indicator_config"),
+    (0xf0, "paw3395_calibration_otp"),
+];
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MemoryBank {
+    pub opcode: u8,
+    pub name: String,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct OnboardMemoryDump {
+    pub banks: Vec<MemoryBank>,
+    pub total_bytes: usize,
+}
+
+impl OnboardMemoryDump {
+    pub fn raw_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.total_bytes);
+        for bank in &self.banks {
+            out.extend_from_slice(&bank.data);
+        }
+        out
+    }
+
+    pub fn parse_dpi_stages(&self) -> Option<Vec<u16>> {
+        let bank = self.banks.iter().find(|b| b.opcode == 0xa6)?;
+        if bank.data.len() < 16 {
+            return None;
+        }
+        let mut stages = Vec::with_capacity(8);
+        for chunk in bank.data[..16].chunks_exact(2) {
+            stages.push(u16::from_le_bytes([chunk[0], chunk[1]]));
+        }
+        Some(stages)
+    }
+
+    pub fn parse_rgb_palette(&self) -> Option<Vec<[u8; 3]>> {
+        let bank = self.banks.iter().find(|b| b.opcode == 0xa3)?;
+        if bank.data.len() < 24 {
+            return None;
+        }
+        let mut colors = Vec::with_capacity(8);
+        for chunk in bank.data[..24].chunks_exact(3) {
+            colors.push([chunk[0], chunk[1], chunk[2]]);
+        }
+        Some(colors)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FirmwareMetadata {
     pub product_name: String,
@@ -309,5 +368,45 @@ mod tests {
 
         let p_final = build_flash_write_chunk(0x08001000, &chunk, true).unwrap();
         assert_eq!(p_final[0], 0xc1);
+    }
+
+    #[test]
+    fn test_onboard_memory_dump_parsing() {
+        let mut dpi_data = vec![0u8; 64];
+        dpi_data[0..2].copy_from_slice(&800u16.to_le_bytes());
+        dpi_data[2..4].copy_from_slice(&1600u16.to_le_bytes());
+        dpi_data[4..6].copy_from_slice(&2400u16.to_le_bytes());
+        dpi_data[6..8].copy_from_slice(&3200u16.to_le_bytes());
+
+        let mut rgb_data = vec![0u8; 64];
+        rgb_data[0..3].copy_from_slice(&[0xff, 0x00, 0x00]);
+        rgb_data[3..6].copy_from_slice(&[0x00, 0xff, 0x00]);
+
+        let dump = OnboardMemoryDump {
+            banks: vec![
+                MemoryBank {
+                    opcode: 0xa6,
+                    name: "dpi_stages_table".into(),
+                    data: dpi_data,
+                },
+                MemoryBank {
+                    opcode: 0xa3,
+                    name: "dpi_stage_rgb_palette".into(),
+                    data: rgb_data,
+                },
+            ],
+            total_bytes: 128,
+        };
+
+        let stages = dump.parse_dpi_stages().unwrap();
+        assert_eq!(stages[0], 800);
+        assert_eq!(stages[1], 1600);
+        assert_eq!(stages[2], 2400);
+        assert_eq!(stages[3], 3200);
+
+        let colors = dump.parse_rgb_palette().unwrap();
+        assert_eq!(colors[0], [0xff, 0x00, 0x00]);
+        assert_eq!(colors[1], [0x00, 0xff, 0x00]);
+        assert_eq!(dump.raw_bytes().len(), 128);
     }
 }

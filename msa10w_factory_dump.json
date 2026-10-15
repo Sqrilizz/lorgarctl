@@ -1,0 +1,50 @@
+{
+  "0x82_battery_and_device_state": {
+    "opcode": "0x82",
+    "name": "battery_and_device_state",
+    "hex": "010105ff03000060009b9d6fff000000ffffffffffffffff030002f0000000000000000000000000000000000000000000000000000000000000000000000000",
+    "length": 64
+  },
+  "0x8e_mcu_uid_and_security_bank": {
+    "opcode": "0x8e",
+    "name": "mcu_uid_and_security_bank",
+    "hex": "b76537c74f7f26a8009b9d6fff000000ffffffffffffffff030002f0000000000000000000000000000000000000000000000000000000000000000000000000",
+    "length": 64
+  },
+  "0xa3_dpi_stage_rgb_palette": {
+    "opcode": "0xa3",
+    "name": "dpi_stage_rgb_palette",
+    "hex": "ff0000ff7f00ffff0000ff000000ff00ffff8b00ffffffff030002f0000000000000000000000000000000000000000000000000000000000000000000000000",
+    "length": 64
+  },
+  "0xa4_button_mapping_primary": {
+    "opcode": "0xa4",
+    "name": "button_mapping_primary",
+    "hex": "f0000002f1000002f2000002f4000002f30000020300000b030002f0000000000000000000000000000000000000000000000000000000000000000000000000",
+    "length": 64
+  },
+  "0xa5_button_mapping_secondary": {
+    "opcode": "0xa5",
+    "name": "button_mapping_secondary",
+    "hex": "05ff0002f1000002f2000002f4000002f30000020300000b030002f0000000000000000000000000000000000000000000000000000000000000000000000000",
+    "length": 64
+  },
+  "0xa6_dpi_stages_table": {
+    "opcode": "0xa6",
+    "name": "dpi_stages_table",
+    "hex": "200340066009800c0019e02e08200019f30000020300000b030002f0000000000000000000000000000000000000000000000000000000000000000000000000",
+    "length": 64
+  },
+  "0xa7_led_indicator_config": {
+    "opcode": "0xa7",
+    "name": "led_indicator_config",
+    "hex": "00ff008b00ff0000ffff7f00ff000000ffffffffffffffff030002f0000000000000000000000000000000000000000000000000000000000000000000000000",
+    "length": 64
+  },
+  "0xf0_paw3395_calibration_otp": {
+    "opcode": "0xf0",
+    "name": "paw3395_calibration_otp",
+    "hex": "b76537c74f7f26a806e55d6fff000000ffffffffffffffff030002f0000000000000000000000000000000000000000000000000000000000000000000000000",
+    "length": 64
+  }
+}

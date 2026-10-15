@@ -47,7 +47,7 @@ Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wi
 | **Daemon & CLI Management Stack** | **100.0%** | [`crates/`](crates) | `lorgarctl` (CLI/TUI menu), `lorgard` (IPC daemon) |
 | **Firmware Container & Checksum Engine** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#82-firmware-file-container-format) | [`lorgar-core::firmware`](crates/lorgar-core/src/firmware.rs), `lorgarctl firmware` |
 | **Bootloader & Flash Memory Protocol** | **62.5%** | [`protocol/msa10w.md`](protocol/msa10w.md#83-low-level-bootloader--flash-protocol) | Protocol & opcodes mapped (75%), EP04 wire verification (50%) |
-| **Live ROM Dumping & Custom Flash Engine** | **In Progress (30%)** | [`protocol/msa10w.md`](protocol/msa10w.md#84-custom-firmware--dump-feasibility-analysis) | Active wired pipeline (`093a:c600`), EP04 calibration & safety checks |
+| **Live ROM & Onboard Memory Dumping (`0x82`..`0xf0`)** | **100.0%** | [`protocol/msa10w.md`](protocol/msa10w.md#84-live-hardware-onboard-memory-dump-protocol-validated-on-hardware) | Validated on live hardware (`093a:c600`), 8 banks (512B), CLI `lorgarctl firmware dump` |
 
 > **Coverage vs. live validation:** percentages above measure reverse-engineered
 > firmware packets/registers, not end-to-end live proof. Kernel query-transport
@@ -293,7 +293,12 @@ lorgarctl --json firmware info firmware.bin
 # Create a valid checksummed container from a custom binary microcode payload
 lorgarctl firmware create --product "LORGAR MSA10W" --ic "571R" --sensor "PAW3395" --input payload.bin --output custom_fw.bin
 
-# Dump flash memory directly over USB (e.g. read first 256 bytes)
+# Dump all 8 onboard hardware memory banks (UID, DPI table, RGB palette, button maps, PAW3395 calibration OTP)
+lorgarctl firmware dump
+lorgarctl firmware dump --output msa10w_factory_dump.bin
+lorgarctl firmware dump --output msa10w_factory_dump.json
+
+# Dump custom address range
 lorgarctl firmware dump --addr 0x0000 --len 256 --output flash_dump.bin
 
 # Switch mouse MCU to USB update / bootloader mode
