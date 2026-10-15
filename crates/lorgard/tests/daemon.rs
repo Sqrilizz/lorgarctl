@@ -65,6 +65,32 @@ fn disconnected_daemon_serves_ipc_rejects_bad_frames_and_shuts_down() {
     )
     .unwrap();
     assert_eq!(response.error_code, Some(3));
+
+    let response = ipc::request(&socket, Action::GetDpiTable).unwrap();
+    assert!(!response.ok);
+    assert_eq!(response.error_code, Some(3));
+
+    let response = ipc::request(&socket, Action::GetButtonMappings { secondary: false }).unwrap();
+    assert!(!response.ok);
+    assert_eq!(response.error_code, Some(3));
+
+    let response = ipc::request(&socket, Action::DumpMemory).unwrap();
+    assert!(!response.ok);
+    assert_eq!(response.error_code, Some(3));
+
+    let response = ipc::request(&socket, Action::SetDpiStages { stages: vec![50] }).unwrap();
+    assert!(!response.ok);
+    assert_eq!(response.error_code, Some(2));
+
+    let response = ipc::request(
+        &socket,
+        Action::SetDpiStages {
+            stages: vec![800, 1600],
+        },
+    )
+    .unwrap();
+    assert!(!response.ok);
+    assert_eq!(response.error_code, Some(3));
     let mut stream = UnixStream::connect(&socket).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(2)))

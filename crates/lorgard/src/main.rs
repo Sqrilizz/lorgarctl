@@ -215,6 +215,73 @@ impl Daemon {
                 self.reload()?;
                 Ok(Response::default())
             }
+            Action::GetDpiTable => {
+                let (stages, colors) = self.monitor.get_dpi_table()?;
+                Ok(Response {
+                    dpi_stages: Some(stages.to_vec()),
+                    stage_colors: Some(colors.to_vec()),
+                    ..Response::default()
+                })
+            }
+            Action::SetDpiStages { stages } => {
+                if stages.is_empty() || stages.len() > 8 {
+                    return Err(LorgarError::Config(
+                        "Specify between 1 and 8 DPI values".into(),
+                    ));
+                }
+                for &dpi in &stages {
+                    if !(lorgar_core::MIN_DPI..=lorgar_core::MAX_DPI).contains(&dpi) {
+                        return Err(LorgarError::InvalidDpi {
+                            dpi,
+                            min: lorgar_core::MIN_DPI,
+                            max: lorgar_core::MAX_DPI,
+                        });
+                    }
+                }
+                let mut stages_arr = [0u16; 8];
+                for (i, &s) in stages.iter().enumerate() {
+                    stages_arr[i] = s;
+                }
+                self.monitor.set_dpi_stages(&stages_arr)?;
+                Ok(Response::default())
+            }
+            Action::GetButtonMappings { secondary } => {
+                let mappings = self.monitor.get_button_mappings(secondary)?;
+                Ok(Response {
+                    button_mappings: Some(mappings),
+                    ..Response::default()
+                })
+            }
+            Action::DumpMemory => {
+                let dump = self.monitor.dump_onboard_memory()?;
+                Ok(Response {
+                    memory_dump: Some(dump),
+                    ..Response::default()
+                })
+            }
+            Action::DumpFlash { addr, len } => {
+                let bytes = self.monitor.dump_flash(addr, len)?;
+                Ok(Response {
+                    flash_dump: Some(bytes),
+                    ..Response::default()
+                })
+            }
+            Action::SetLod { mm } => {
+                self.monitor.set_lod(mm)?;
+                Ok(Response::default())
+            }
+            Action::SetDebounce { ms, rapid_fire } => {
+                self.monitor.set_debounce(ms, rapid_fire)?;
+                Ok(Response::default())
+            }
+            Action::SetAngleSnapping { enabled } => {
+                self.monitor.set_angle_snapping(enabled)?;
+                Ok(Response::default())
+            }
+            Action::SetMotionSync { enabled } => {
+                self.monitor.set_motion_sync(enabled)?;
+                Ok(Response::default())
+            }
         }
     }
 
@@ -321,9 +388,9 @@ fn run(args: Args) -> Result<()> {
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(e) => return Err(e.into()),
             };
-            stream.set_read_timeout(Some(Duration::from_millis(200)))?;
-            stream.set_write_timeout(Some(Duration::from_millis(200)))?;
-            let response = match ipc::read_timed_frame(&mut stream, Duration::from_millis(200))
+            stream.set_read_timeout(Some(Duration::from_millis(500)))?;
+            stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+            let response = match ipc::read_timed_frame(&mut stream, Duration::from_millis(500))
                 .and_then(|request| daemon.request(request))
             {
                 Ok(response) => response,

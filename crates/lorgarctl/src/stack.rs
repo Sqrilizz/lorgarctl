@@ -159,21 +159,32 @@ fn get_hardware_or_default_dpi_info(cli: &Cli) -> (Option<u8>, Vec<DpiStageDispl
         (7, 6400, "#ffffff", "White"),
     ];
 
-    if !is_daemon_mode(cli) {
-        if let Ok(dev) = crate::open_device(cli.device.as_deref(), false) {
-            let active = dev
-                .query_device_state()
-                .ok()
-                .and_then(|raw| lorgar_core::protocol::parse_active_dpi_stage(&raw).ok());
-            let hw_dpis = dev.get_hardware_dpi_stages().ok();
-            let hw_colors = dev.get_hardware_stage_colors().ok();
+    let (hw_dpis, hw_colors, hw_active) = if is_daemon_mode(cli) {
+        if let Ok(res) = response(cli, Action::GetDpiTable) {
+            let active = get_active_stage(cli);
+            (res.dpi_stages, res.stage_colors, active)
+        } else {
+            (None, None, get_active_stage(cli))
+        }
+    } else if let Ok(dev) = crate::open_device(cli.device.as_deref(), false) {
+        let active = dev
+            .query_device_state()
+            .ok()
+            .and_then(|raw| lorgar_core::protocol::parse_active_dpi_stage(&raw).ok());
+        let dpis = dev.get_hardware_dpi_stages().ok().map(|d| d.to_vec());
+        let colors = dev.get_hardware_stage_colors().ok().map(|c| c.to_vec());
+        (dpis, colors, active)
+    } else {
+        (None, None, get_active_stage(cli))
+    };
 
-            if let Some(dpis) = hw_dpis {
-                let mut stages = Vec::with_capacity(8);
-                for i in 0..8 {
-                    let dpi = dpis[i];
-                    let (hex, name) = if let Some(colors) = &hw_colors {
-                        let [r, g, b] = colors[i];
+    if let Some(dpis) = hw_dpis {
+        if dpis.len() >= 8 {
+            let mut stages = Vec::with_capacity(8);
+            for i in 0..8 {
+                let dpi = dpis[i];
+                let (hex, name) = if let Some(colors) = &hw_colors {
+                    if let Some(&[r, g, b]) = colors.get(i) {
                         let hex = format!("#{r:02x}{g:02x}{b:02x}");
                         let name = color_name(r, g, b);
                         (hex, name)
@@ -182,16 +193,21 @@ fn get_hardware_or_default_dpi_info(cli: &Cli) -> (Option<u8>, Vec<DpiStageDispl
                             default_stages[i].2.to_string(),
                             default_stages[i].3.to_string(),
                         )
-                    };
-                    stages.push(DpiStageDisplay {
-                        stage: i as u8,
-                        dpi,
-                        hex,
-                        color_name: name,
-                    });
-                }
-                return (active, stages);
+                    }
+                } else {
+                    (
+                        default_stages[i].2.to_string(),
+                        default_stages[i].3.to_string(),
+                    )
+                };
+                stages.push(DpiStageDisplay {
+                    stage: i as u8,
+                    dpi,
+                    hex,
+                    color_name: name,
+                });
             }
+            return (hw_active, stages);
         }
     }
 
@@ -305,9 +321,18 @@ fn set_all_dpi_stages(cli: &Cli, stages: &[u16]) -> Result<()> {
             });
         }
     }
-    let dev = crate::open_device(cli.device.as_deref(), false)?;
-    for (stage, &dpi) in stages.iter().enumerate() {
-        dev.set_dpi(stage as u8, dpi)?;
+    if is_daemon_mode(cli) {
+        response(
+            cli,
+            Action::SetDpiStages {
+                stages: stages.to_vec(),
+            },
+        )?;
+    } else {
+        let dev = crate::open_device(cli.device.as_deref(), false)?;
+        for (stage, &dpi) in stages.iter().enumerate() {
+            dev.set_dpi(stage as u8, dpi)?;
+        }
     }
 
     if cli.json {
@@ -343,8 +368,15 @@ fn show_button_mappings(cli: &Cli, secondary: bool) -> Result<()> {
     };
     let bank_id = if secondary { "0xa5" } else { "0xa4" };
 
-    let dev = crate::open_device(cli.device.as_deref(), false)?;
-    let buttons = dev.get_hardware_button_mappings(secondary)?;
+    let buttons = if is_daemon_mode(cli) {
+        let res = response(cli, Action::GetButtonMappings { secondary })?;
+        res.button_mappings.ok_or_else(|| {
+            LorgarError::Transport("missing button mappings in daemon response".into())
+        })?
+    } else {
+        let dev = crate::open_device(cli.device.as_deref(), false)?;
+        dev.get_hardware_button_mappings(secondary)?
+    };
 
     if cli.json {
         return output(
@@ -1229,8 +1261,12 @@ fn control(cli: &Cli) -> Result<()> {
             let Some(val) = mm else {
                 return show_lod_help(cli);
             };
-            let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
-            dev.set_lod(*val)?;
+            if is_daemon_mode(cli) {
+                response(cli, Action::SetLod { mm: *val })?;
+            } else {
+                let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
+                dev.set_lod(*val)?;
+            }
             if cli.json {
                 output(&json!({"ok": true, "lod_mm": val}), cli.json)?;
             } else {
@@ -1248,8 +1284,18 @@ fn control(cli: &Cli) -> Result<()> {
             let Some(val) = ms else {
                 return show_debounce_help(cli);
             };
-            let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
-            dev.set_debounce(*val, *rapid_fire)?;
+            if is_daemon_mode(cli) {
+                response(
+                    cli,
+                    Action::SetDebounce {
+                        ms: *val,
+                        rapid_fire: *rapid_fire,
+                    },
+                )?;
+            } else {
+                let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
+                dev.set_debounce(*val, *rapid_fire)?;
+            }
             if cli.json {
                 output(
                     &json!({"ok": true, "debounce_ms": val, "rapid_fire": rapid_fire}),
@@ -1273,8 +1319,12 @@ fn control(cli: &Cli) -> Result<()> {
             let Some(val) = enabled else {
                 return show_angle_snap_help(cli);
             };
-            let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
-            dev.set_angle_snapping(*val)?;
+            if is_daemon_mode(cli) {
+                response(cli, Action::SetAngleSnapping { enabled: *val })?;
+            } else {
+                let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
+                dev.set_angle_snapping(*val)?;
+            }
             if cli.json {
                 output(&json!({"ok": true, "angle_snapping": val}), cli.json)?;
             } else {
@@ -1295,8 +1345,12 @@ fn control(cli: &Cli) -> Result<()> {
             let Some(val) = enabled else {
                 return show_motion_sync_help(cli);
             };
-            let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
-            dev.set_motion_sync(*val)?;
+            if is_daemon_mode(cli) {
+                response(cli, Action::SetMotionSync { enabled: *val })?;
+            } else {
+                let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
+                dev.set_motion_sync(*val)?;
+            }
             if cli.json {
                 output(&json!({"ok": true, "motion_sync": val}), cli.json)?;
             } else {
@@ -1437,9 +1491,16 @@ fn handle_firmware(cli: &Cli, sub: &FirmwareCommands) -> Result<()> {
             len,
             output: out_path,
         } => {
-            let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
             if *addr == 0 && *len == 256 {
-                let dump = dev.dump_onboard_memory()?;
+                let dump = if is_daemon_mode(cli) {
+                    let res = response(cli, Action::DumpMemory)?;
+                    res.memory_dump.ok_or_else(|| {
+                        LorgarError::Transport("missing memory dump in daemon response".into())
+                    })?
+                } else {
+                    let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
+                    dev.dump_onboard_memory()?
+                };
                 let raw_bytes = dump.raw_bytes();
 
                 if let Some(path) = out_path {
@@ -1523,7 +1584,21 @@ fn handle_firmware(cli: &Cli, sub: &FirmwareCommands) -> Result<()> {
                     }
                 }
             } else {
-                let dumped = dev.dump_flash(*addr, *len)?;
+                let dumped = if is_daemon_mode(cli) {
+                    let res = response(
+                        cli,
+                        Action::DumpFlash {
+                            addr: *addr,
+                            len: *len,
+                        },
+                    )?;
+                    res.flash_dump.ok_or_else(|| {
+                        LorgarError::Transport("missing flash dump in daemon response".into())
+                    })?
+                } else {
+                    let dev = crate::open_device(cli.device.as_deref(), cli.debug)?;
+                    dev.dump_flash(*addr, *len)?
+                };
                 if let Some(path) = out_path {
                     std::fs::write(path, &dumped)?;
                     if cli.json {

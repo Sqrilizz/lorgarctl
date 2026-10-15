@@ -85,6 +85,58 @@ pub trait Session: Send {
         let _ = (minutes, active_stage);
         Ok(())
     }
+    fn get_dpi_table(&self) -> Result<([u16; 8], [[u8; 3]; 8])> {
+        Err(LorgarError::Transport(
+            "session does not support DPI table query".into(),
+        ))
+    }
+    fn set_dpi_stages(&self, stages: &[u16; 8]) -> Result<()> {
+        let _ = stages;
+        Err(LorgarError::Transport(
+            "session does not support setting DPI stages".into(),
+        ))
+    }
+    fn get_button_mappings(&self, secondary: bool) -> Result<Vec<crate::firmware::ButtonMapping>> {
+        let _ = secondary;
+        Err(LorgarError::Transport(
+            "session does not support button mappings".into(),
+        ))
+    }
+    fn dump_onboard_memory(&self) -> Result<crate::firmware::OnboardMemoryDump> {
+        Err(LorgarError::Transport(
+            "session does not support onboard memory dump".into(),
+        ))
+    }
+    fn dump_flash(&self, addr: u16, len: usize) -> Result<Vec<u8>> {
+        let _ = (addr, len);
+        Err(LorgarError::Transport(
+            "session does not support flash dump".into(),
+        ))
+    }
+    fn set_lod(&self, mm: u8) -> Result<()> {
+        let _ = mm;
+        Err(LorgarError::Transport(
+            "session does not support LOD".into(),
+        ))
+    }
+    fn set_debounce(&self, ms: u16, rapid_fire: bool) -> Result<()> {
+        let _ = (ms, rapid_fire);
+        Err(LorgarError::Transport(
+            "session does not support debounce".into(),
+        ))
+    }
+    fn set_angle_snapping(&self, enabled: bool) -> Result<()> {
+        let _ = enabled;
+        Err(LorgarError::Transport(
+            "session does not support angle snapping".into(),
+        ))
+    }
+    fn set_motion_sync(&self, enabled: bool) -> Result<()> {
+        let _ = enabled;
+        Err(LorgarError::Transport(
+            "session does not support motion sync".into(),
+        ))
+    }
 }
 
 pub trait Provider {
@@ -193,6 +245,35 @@ impl Session for HidSession {
             .iter()
             .any(|d| d.path == self.info().path && d.is_config_interface))
     }
+    fn get_dpi_table(&self) -> Result<([u16; 8], [[u8; 3]; 8])> {
+        let stages = self.device.get_hardware_dpi_stages()?;
+        let colors = self.device.get_hardware_stage_colors()?;
+        Ok((stages, colors))
+    }
+    fn set_dpi_stages(&self, stages: &[u16; 8]) -> Result<()> {
+        self.device.set_dpi_stages(stages)
+    }
+    fn get_button_mappings(&self, secondary: bool) -> Result<Vec<crate::firmware::ButtonMapping>> {
+        self.device.get_hardware_button_mappings(secondary)
+    }
+    fn dump_onboard_memory(&self) -> Result<crate::firmware::OnboardMemoryDump> {
+        self.device.dump_onboard_memory()
+    }
+    fn dump_flash(&self, addr: u16, len: usize) -> Result<Vec<u8>> {
+        self.device.dump_flash(addr, len)
+    }
+    fn set_lod(&self, mm: u8) -> Result<()> {
+        self.device.set_lod(mm)
+    }
+    fn set_debounce(&self, ms: u16, rapid_fire: bool) -> Result<()> {
+        self.device.set_debounce(ms, rapid_fire)
+    }
+    fn set_angle_snapping(&self, enabled: bool) -> Result<()> {
+        self.device.set_angle_snapping(enabled)
+    }
+    fn set_motion_sync(&self, enabled: bool) -> Result<()> {
+        self.device.set_motion_sync(enabled)
+    }
 }
 
 pub struct Monitor<P: Provider> {
@@ -244,6 +325,81 @@ impl<P: Provider> Monitor<P> {
             pid: crate::PRODUCT_IDS[1],
         })?;
         session.set_sleep_timeout(minutes, stage)
+    }
+
+    pub fn get_dpi_table(&self) -> Result<([u16; 8], [[u8; 3]; 8])> {
+        let session = self.session.as_ref().ok_or(LorgarError::DeviceNotFound {
+            vid: crate::VENDOR_ID,
+            pid: crate::PRODUCT_IDS[1],
+        })?;
+        session.get_dpi_table()
+    }
+
+    pub fn set_dpi_stages(&self, stages: &[u16; 8]) -> Result<()> {
+        let session = self.session.as_ref().ok_or(LorgarError::DeviceNotFound {
+            vid: crate::VENDOR_ID,
+            pid: crate::PRODUCT_IDS[1],
+        })?;
+        session.set_dpi_stages(stages)
+    }
+
+    pub fn get_button_mappings(
+        &self,
+        secondary: bool,
+    ) -> Result<Vec<crate::firmware::ButtonMapping>> {
+        let session = self.session.as_ref().ok_or(LorgarError::DeviceNotFound {
+            vid: crate::VENDOR_ID,
+            pid: crate::PRODUCT_IDS[1],
+        })?;
+        session.get_button_mappings(secondary)
+    }
+
+    pub fn dump_onboard_memory(&self) -> Result<crate::firmware::OnboardMemoryDump> {
+        let session = self.session.as_ref().ok_or(LorgarError::DeviceNotFound {
+            vid: crate::VENDOR_ID,
+            pid: crate::PRODUCT_IDS[1],
+        })?;
+        session.dump_onboard_memory()
+    }
+
+    pub fn dump_flash(&self, addr: u16, len: usize) -> Result<Vec<u8>> {
+        let session = self.session.as_ref().ok_or(LorgarError::DeviceNotFound {
+            vid: crate::VENDOR_ID,
+            pid: crate::PRODUCT_IDS[1],
+        })?;
+        session.dump_flash(addr, len)
+    }
+
+    pub fn set_lod(&self, mm: u8) -> Result<()> {
+        let session = self.session.as_ref().ok_or(LorgarError::DeviceNotFound {
+            vid: crate::VENDOR_ID,
+            pid: crate::PRODUCT_IDS[1],
+        })?;
+        session.set_lod(mm)
+    }
+
+    pub fn set_debounce(&self, ms: u16, rapid_fire: bool) -> Result<()> {
+        let session = self.session.as_ref().ok_or(LorgarError::DeviceNotFound {
+            vid: crate::VENDOR_ID,
+            pid: crate::PRODUCT_IDS[1],
+        })?;
+        session.set_debounce(ms, rapid_fire)
+    }
+
+    pub fn set_angle_snapping(&self, enabled: bool) -> Result<()> {
+        let session = self.session.as_ref().ok_or(LorgarError::DeviceNotFound {
+            vid: crate::VENDOR_ID,
+            pid: crate::PRODUCT_IDS[1],
+        })?;
+        session.set_angle_snapping(enabled)
+    }
+
+    pub fn set_motion_sync(&self, enabled: bool) -> Result<()> {
+        let session = self.session.as_ref().ok_or(LorgarError::DeviceNotFound {
+            vid: crate::VENDOR_ID,
+            pid: crate::PRODUCT_IDS[1],
+        })?;
+        session.set_motion_sync(enabled)
     }
 
     pub fn execute(&mut self, command: &Command) -> Result<TimedEvent> {

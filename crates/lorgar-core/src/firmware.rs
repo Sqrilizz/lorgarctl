@@ -16,10 +16,10 @@ pub const ONBOARD_MEMORY_BANKS: [(u8, &str); 8] = [
     (0xf0, "paw3395_calibration_otp"),
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ButtonMapping {
     pub button_index: u8,
-    pub name: &'static str,
+    pub name: String,
     pub raw: [u8; 4],
     pub action: ButtonAction,
 }
@@ -126,7 +126,11 @@ impl OnboardMemoryDump {
             let raw = chunk;
             list.push(ButtonMapping {
                 button_index: i as u8,
-                name: BUTTON_NAMES.get(i).copied().unwrap_or("Unknown Button"),
+                name: BUTTON_NAMES
+                    .get(i)
+                    .copied()
+                    .unwrap_or("Unknown Button")
+                    .to_string(),
                 raw,
                 action: ButtonAction::from_raw(raw),
             });
