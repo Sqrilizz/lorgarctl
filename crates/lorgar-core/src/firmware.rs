@@ -89,8 +89,8 @@ impl OnboardMemoryDump {
             return None;
         }
         let mut stages = Vec::with_capacity(8);
-        for chunk in bank.data[..16].chunks_exact(2) {
-            stages.push(u16::from_le_bytes([chunk[0], chunk[1]]));
+        for &chunk in bank.data[..16].as_chunks::<2>().0 {
+            stages.push(u16::from_le_bytes(chunk));
         }
         Some(stages)
     }
@@ -101,8 +101,8 @@ impl OnboardMemoryDump {
             return None;
         }
         let mut colors = Vec::with_capacity(8);
-        for chunk in bank.data[..24].chunks_exact(3) {
-            colors.push([chunk[0], chunk[1], chunk[2]]);
+        for &chunk in bank.data[..24].as_chunks::<3>().0 {
+            colors.push(chunk);
         }
         Some(colors)
     }
@@ -122,8 +122,8 @@ impl OnboardMemoryDump {
             "Button 6 (Top DPI Button)",
         ];
         let mut list = Vec::with_capacity(6);
-        for (i, chunk) in bank.data[..24].chunks_exact(4).enumerate() {
-            let raw = [chunk[0], chunk[1], chunk[2], chunk[3]];
+        for (i, &chunk) in bank.data[..24].as_chunks::<4>().0.iter().enumerate() {
+            let raw = chunk;
             list.push(ButtonMapping {
                 button_index: i as u8,
                 name: BUTTON_NAMES.get(i).copied().unwrap_or("Unknown Button"),

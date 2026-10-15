@@ -321,8 +321,8 @@ impl Msa10w {
             ));
         }
         let mut stages = [0u16; 8];
-        for (i, chunk) in resp[..16].chunks_exact(2).enumerate() {
-            stages[i] = u16::from_le_bytes([chunk[0], chunk[1]]);
+        for (i, &chunk) in resp[..16].as_chunks::<2>().0.iter().enumerate() {
+            stages[i] = u16::from_le_bytes(chunk);
         }
         Ok(stages)
     }
@@ -337,8 +337,8 @@ impl Msa10w {
             ));
         }
         let mut colors = [[0u8; 3]; 8];
-        for (i, chunk) in resp[..24].chunks_exact(3).enumerate() {
-            colors[i] = [chunk[0], chunk[1], chunk[2]];
+        for (i, &chunk) in resp[..24].as_chunks::<3>().0.iter().enumerate() {
+            colors[i] = chunk;
         }
         Ok(colors)
     }
