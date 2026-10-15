@@ -168,22 +168,16 @@ impl FirmwareContainer {
             )));
         }
 
-        let stored_checksum = u32::from_le_bytes(
-            data[0..4]
-                .try_into()
-                .map_err(|_| LorgarError::Firmware("invalid checksum slice".into()))?,
-        );
-        let declared_len = u32::from_le_bytes(
-            data[4..8]
-                .try_into()
-                .map_err(|_| LorgarError::Firmware("invalid length slice".into()))?,
-        ) as usize;
+        let stored_checksum = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+        let declared_len = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
 
-        let check_len = declared_len.min(data.len());
-        if check_len < 8 {
-            return Err(LorgarError::Firmware("invalid declared length".into()));
+        if data.len() < declared_len || declared_len < FIRMWARE_HEADER_SIZE {
+            return Err(LorgarError::Firmware(format!(
+                "truncated or invalid firmware size: declared {declared_len}, actual {}",
+                data.len()
+            )));
         }
-        let sum: u32 = data[8..check_len]
+        let sum: u32 = data[8..declared_len]
             .iter()
             .fold(0u32, |acc, &b| acc.wrapping_add(b as u32));
         let computed_checksum = FIRMWARE_CHECKSUM_SEED.wrapping_sub(sum);
@@ -212,19 +206,11 @@ impl FirmwareContainer {
         let boot_in_ep = read_str(0xf7, 64);
         let boot_out_ep = read_str(0x137, 64);
         let normal_in_ep = read_str(0x177, 64);
-        let normal_out_ep = read_str(0x277, 64);
+        let normal_out_ep = read_str(0x1b7, 64);
 
-        let flash_base_addr = u32::from_be_bytes(
-            data[0x21e..0x222]
-                .try_into()
-                .map_err(|_| LorgarError::Firmware("invalid flash base address slice".into()))?,
-        );
-
-        let payload = if data.len() > FIRMWARE_HEADER_SIZE {
-            data[FIRMWARE_HEADER_SIZE..].to_vec()
-        } else {
-            Vec::new()
-        };
+        let flash_base_addr =
+            u32::from_be_bytes([data[0x21e], data[0x21f], data[0x220], data[0x221]]);
+        let payload = data[FIRMWARE_HEADER_SIZE..declared_len].to_vec();
 
         Ok(Self {
             meta: FirmwareMetadata {
@@ -244,8 +230,8 @@ impl FirmwareContainer {
 
     pub fn build(meta: &FirmwareMetadata, payload: &[u8]) -> Vec<u8> {
         let mut out = vec![0u8; FIRMWARE_HEADER_SIZE + payload.len()];
-        let header_len = FIRMWARE_HEADER_SIZE as u32;
-        out[4..8].copy_from_slice(&header_len.to_le_bytes());
+        let total_len = (FIRMWARE_HEADER_SIZE + payload.len()) as u32;
+        out[4..8].copy_from_slice(&total_len.to_le_bytes());
 
         let write_str = |buf: &mut [u8], start: usize, s: &str| {
             let bytes = s.as_bytes();
@@ -260,7 +246,7 @@ impl FirmwareContainer {
         write_str(&mut out, 0xf7, &meta.boot_in_ep);
         write_str(&mut out, 0x137, &meta.boot_out_ep);
         write_str(&mut out, 0x177, &meta.normal_in_ep);
-        write_str(&mut out, 0x277, &meta.normal_out_ep);
+        write_str(&mut out, 0x1b7, &meta.normal_out_ep);
 
         out[0x21e..0x222].copy_from_slice(&meta.flash_base_addr.to_be_bytes());
 
@@ -268,7 +254,7 @@ impl FirmwareContainer {
             out[FIRMWARE_HEADER_SIZE..].copy_from_slice(payload);
         }
 
-        let sum: u32 = out[8..FIRMWARE_HEADER_SIZE]
+        let sum: u32 = out[8..total_len as usize]
             .iter()
             .fold(0u32, |acc, &b| acc.wrapping_add(b as u32));
         let chk = FIRMWARE_CHECKSUM_SEED.wrapping_sub(sum);

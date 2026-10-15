@@ -5,7 +5,8 @@ pub const PRODUCT_IDS: &[u16] = &[0xc600, 0xc601];
 pub const CONFIG_USAGE_PAGE: u16 = 0xff10;
 pub const DPI_STAGE_COUNT: u8 = 8;
 pub const MIN_DPI: u16 = 100;
-pub const MAX_DPI: u16 = 12000;
+pub const MAX_DPI: u16 = 26000;
+pub const DPI_STEP: u16 = 50;
 
 pub mod cmd {
     pub const SET_POLLING_RATE: u8 = 0x20;
@@ -133,7 +134,7 @@ pub fn build_set_dpi_payload(stage: u8, dpi: u16) -> Result<[u8; 8]> {
     if stage >= DPI_STAGE_COUNT {
         return Err(LorgarError::InvalidStage { stage });
     }
-    if !(MIN_DPI..=MAX_DPI).contains(&dpi) {
+    if !(MIN_DPI..=MAX_DPI).contains(&dpi) || !dpi.is_multiple_of(DPI_STEP) {
         return Err(LorgarError::InvalidDpi {
             dpi,
             min: MIN_DPI,
@@ -577,8 +578,10 @@ mod tests {
 
     #[test]
     fn test_invalid_dpi() {
-        let res = build_set_dpi_payload(0, 50);
-        assert!(matches!(res, Err(LorgarError::InvalidDpi { .. })));
+        assert!(build_set_dpi_payload(0, 50).is_err());
+        assert!(build_set_dpi_payload(0, 837).is_err());
+        assert!(build_set_dpi_payload(0, 26050).is_err());
+        assert!(build_set_dpi_payload(0, 26000).is_ok());
     }
 
     #[test]

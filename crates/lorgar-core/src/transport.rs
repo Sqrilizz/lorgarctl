@@ -88,9 +88,14 @@ impl HidapiTransport {
             let Some(raw) = self.read_hardware(remaining.as_millis().max(1) as i32)? else {
                 return Err(LorgarError::Timeout);
             };
-            if payload[0] != cmd::QUERY_STATE
-                || matches!(InputPacket::parse(&raw)?.event, InputEvent::State { .. })
-            {
+            let is_matching = if payload[0] == cmd::QUERY_STATE {
+                InputPacket::parse(&raw)
+                    .map(|pkt| matches!(pkt.event, InputEvent::State { .. }))
+                    .unwrap_or(false)
+            } else {
+                true
+            };
+            if is_matching {
                 return Ok(raw);
             }
             let mut pending = self.pending.borrow_mut();

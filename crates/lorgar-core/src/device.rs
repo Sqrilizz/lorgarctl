@@ -58,7 +58,7 @@ impl Msa10w {
 
     pub fn open() -> Result<Self> {
         let api = HidApi::new()?;
-        let config_candidates: Vec<&hidapi::DeviceInfo> = api
+        let mut config_candidates: Vec<&hidapi::DeviceInfo> = api
             .device_list()
             .filter(|d| {
                 d.vendor_id() == VENDOR_ID
@@ -72,6 +72,13 @@ impl Msa10w {
                 vid: VENDOR_ID,
                 pid: PRODUCT_IDS[1],
             });
+        }
+
+        let has_wired = config_candidates
+            .iter()
+            .any(|d| d.product_id() == PRODUCT_IDS[0]);
+        if has_wired {
+            config_candidates.retain(|d| d.product_id() == PRODUCT_IDS[0]);
         }
 
         let mut paths: Vec<_> = config_candidates.iter().map(|d| d.path()).collect();
