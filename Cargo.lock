@@ -334,16 +334,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
 
 [[package]]
-name = "fs2"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
-dependencies = [
- "libc",
- "winapi",
-]
-
-[[package]]
 name = "getrandom"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -473,8 +463,6 @@ checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 name = "lorgar-core"
 version = "0.1.0"
 dependencies = [
- "ctrlc",
- "fs2",
  "hidapi",
  "libc",
  "log",
@@ -492,6 +480,7 @@ dependencies = [
  "clap 4.6.6",
  "clap_complete",
  "colored",
+ "ctrlc",
  "env_logger",
  "ksni",
  "log",
@@ -506,6 +495,7 @@ name = "lorgard"
 version = "0.1.0"
 dependencies = [
  "clap 4.6.6",
+ "ctrlc",
  "lorgar-core",
  "serde_json",
  "tempfile",
@@ -531,9 +521,9 @@ dependencies = [
 
 [[package]]
 name = "objc2"
-version = "0.6.4"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a12a8ed07aefc768292f076dc3ac8c48f3781c8f2d5851dd3d98950e8c5a89f"
+checksum = "08849bbd4767dfae9457696856ae1c84fe4e0281bbe4a7abff2d0e06fb7981f8"
 dependencies = [
  "objc2-encode",
 ]

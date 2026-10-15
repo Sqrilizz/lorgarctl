@@ -336,8 +336,16 @@ impl Daemon {
     }
 }
 
+fn shutdown_flag() -> Result<std::sync::Arc<std::sync::atomic::AtomicBool>> {
+    let stopped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = stopped.clone();
+    ctrlc::set_handler(move || flag.store(true, Ordering::Relaxed))
+        .map_err(|e| LorgarError::Transport(e.to_string()))?;
+    Ok(stopped)
+}
+
 fn run(args: Args) -> Result<()> {
-    let stopped = lorgar_core::monitor::shutdown_flag()?;
+    let stopped = shutdown_flag()?;
     let path = ipc::socket_path()?;
     let _lock = lorgar_core::storage::FileLock::acquire(&path.with_extension("lock"))?;
     let config_path =

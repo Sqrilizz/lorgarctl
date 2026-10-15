@@ -593,11 +593,3 @@ impl<P: Provider> Monitor<P> {
         events
     }
 }
-
-pub fn shutdown_flag() -> Result<std::sync::Arc<std::sync::atomic::AtomicBool>> {
-    let stopped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let flag = stopped.clone();
-    ctrlc::set_handler(move || flag.store(true, std::sync::atomic::Ordering::Relaxed))
-        .map_err(|e| LorgarError::Transport(e.to_string()))?;
-    Ok(stopped)
-}

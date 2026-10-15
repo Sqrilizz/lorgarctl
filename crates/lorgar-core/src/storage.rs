@@ -1,8 +1,8 @@
 use crate::{LorgarError, Result};
-use fs2::FileExt;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 
 pub fn private_dir(path: &Path) -> Result<()> {
@@ -59,8 +59,10 @@ impl FileLock {
             .truncate(false)
             .mode(0o600)
             .open(path)?;
-        file.try_lock_exclusive()
-            .map_err(|_| LorgarError::DeviceBusy)?;
+        let ret = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if ret != 0 {
+            return Err(LorgarError::DeviceBusy);
+        }
         Ok(Self(file))
     }
 }

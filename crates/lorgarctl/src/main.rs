@@ -433,6 +433,14 @@ fn send_desktop_notification(title: &str, body: &str, critical: bool) {
     );
 }
 
+pub fn shutdown_flag() -> Result<std::sync::Arc<std::sync::atomic::AtomicBool>> {
+    let stopped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = stopped.clone();
+    ctrlc::set_handler(move || flag.store(true, std::sync::atomic::Ordering::Relaxed))
+        .map_err(|e| LorgarError::Transport(e.to_string()))?;
+    Ok(stopped)
+}
+
 fn wait_or_stop(stopped: &std::sync::atomic::AtomicBool, seconds: u64) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
     while std::time::Instant::now() < deadline
@@ -524,7 +532,7 @@ fn run_app(cli: Cli) -> Result<()> {
 
             use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
             let fd = unsafe { OwnedFd::from_raw_fd(fd) };
-            let stopped = lorgar_core::monitor::shutdown_flag()?;
+            let stopped = shutdown_flag()?;
             println!("Virtual HID battery created; desktop integration depends on UPower support.");
 
             while !stopped.load(std::sync::atomic::Ordering::Relaxed) {

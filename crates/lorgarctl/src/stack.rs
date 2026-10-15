@@ -756,7 +756,7 @@ fn event_output(event: &TimedEvent, as_json: bool) -> Result<()> {
 }
 
 fn watch(cli: &Cli, capture: Option<(&Path, u64, bool, &str, u64)>) -> Result<()> {
-    let stopped = monitor::shutdown_flag()?;
+    let stopped = crate::shutdown_flag()?;
     let start = Instant::now();
     let duration = capture.map(|(_, duration, _, _, _)| duration).unwrap_or(0);
     let mut writer = if let Some((path, _, _, label, _)) = capture {

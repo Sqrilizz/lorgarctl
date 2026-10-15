@@ -114,7 +114,7 @@ pub fn run(
         );
         println!("Icon registered in System Tray. Low battery notifications active.");
 
-        let stopped = lorgar_core::monitor::shutdown_flag()?;
+        let stopped = crate::shutdown_flag()?;
         let initial_status = open(device, debug).and_then(|dev| dev.get_status()).ok();
 
         let initial_bat = initial_status.as_ref().map(|s| s.battery_percentage);
