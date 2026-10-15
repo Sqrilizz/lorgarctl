@@ -9,6 +9,8 @@ use lorgar_core::Result;
 
 #[cfg(feature = "tray")]
 use colored::*;
+#[cfg(feature = "tray")]
+use ksni::blocking::TrayMethods;
 
 #[cfg(feature = "tray")]
 pub struct LorgarTray {
@@ -21,6 +23,10 @@ pub struct LorgarTray {
 
 #[cfg(feature = "tray")]
 impl ksni::Tray for LorgarTray {
+    fn id(&self) -> String {
+        "lorgarctl".to_string()
+    }
+
     fn icon_name(&self) -> String {
         "input-mouse".to_string()
     }
@@ -138,9 +144,9 @@ pub fn run(
             stopped: stopped.clone(),
         };
 
-        let service = ksni::TrayService::new(tray);
-        let handle = service.handle();
-        service.spawn();
+        let handle = tray
+            .spawn()
+            .map_err(|e| lorgar_core::LorgarError::Transport(e.to_string()))?;
         let mut low_notified = false;
 
         while !stopped.load(std::sync::atomic::Ordering::Relaxed) {
@@ -189,7 +195,7 @@ pub fn run(
                 }
             }
         }
-        handle.shutdown();
+        handle.shutdown().wait();
         Ok(())
     }
 }
