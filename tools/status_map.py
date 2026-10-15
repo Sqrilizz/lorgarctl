@@ -166,7 +166,7 @@ def main():
         {"name": "Pkt 0x09: Macro Bank B", "label": "Pkt 0x09 (Macro B)", "done": 32, "todo": 0},
         {"name": "FW Container & Format", "label": "FW Container", "done": 32, "todo": 0},
         {"name": "Bootloader Entry (0x08 0x0d)", "label": "Boot Mode (0x0d)", "done": 24, "todo": 8},
-        {"name": "Flash Memory Dump (0x08 0x08)", "label": "Flash Dump (0x08)", "done": 16, "todo": 16},
+        {"name": "Live Memory Dump (0x82..0xf0)", "label": "Flash Dump", "done": 32, "todo": 0},
         {"name": "Custom Flash Write (0xC0/C1)", "label": "Flash Write (0xC0)", "done": 8, "todo": 24},
     ]
 
@@ -213,7 +213,7 @@ def main():
     (ASSETS / "badge-firmware.svg").write_text(badge("firmware*", "100.0%", 100.0))
     (ASSETS / "badge-protocol.svg").write_text(badge("protocol", "100.0%", 100.0))
     (ASSETS / "badge-driver.svg").write_text(badge("linux-stack", "100.0%", 100.0))
-    (ASSETS / "badge-bootloader.svg").write_text(badge("bootloader", "62.5%", 62.5))
+    (ASSETS / "badge-bootloader.svg").write_text(badge("bootloader", "75.0%", 75.0))
     print("Wrote badges to assets/")
 
 
