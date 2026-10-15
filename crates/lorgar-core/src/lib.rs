@@ -16,9 +16,9 @@ pub use device::{BatteryInfo, DeviceStatus, LorgarDeviceInfo, Msa10w};
 pub use error::{LorgarError, Result};
 pub use firmware::{
     build_enter_bootloader_packet, build_flash_write_chunk, build_read_flash_packet,
-    create_firmware, verify_header, FirmwareContainer, FirmwareMetadata, MemoryBank,
-    OnboardMemoryDump, FIRMWARE_CHECKSUM_SEED, FIRMWARE_HEADER_SIZE, FLASH_WRITE_CHUNK_SIZE,
-    ONBOARD_MEMORY_BANKS,
+    create_firmware, verify_header, ButtonAction, ButtonMapping, FirmwareContainer,
+    FirmwareMetadata, MemoryBank, OnboardMemoryDump, FIRMWARE_CHECKSUM_SEED, FIRMWARE_HEADER_SIZE,
+    FLASH_WRITE_CHUNK_SIZE, ONBOARD_MEMORY_BANKS,
 };
 pub use notify::{send_desktop_notification, Urgency};
 pub use protocol::{

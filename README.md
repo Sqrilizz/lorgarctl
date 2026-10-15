@@ -120,7 +120,7 @@ The mouse firmware strictly separates its protocol into two decoupled communicat
 | **Phase 2** | Persistent Hardware NVRAM | **100% COMPLETE** | LOD, Debounce, Motion Sync, Angle Snap, Button Binds |
 | **Phase 3** | Firmware Binary Container | **100% COMPLETE** | Checksum algorithm, Header parser & builder (`firmware create`) |
 | **Phase 4** | Live Flasher Protocol Analysis | **100% COMPLETE** | Disassembled `HIDUsb.dll` & Togran flasher state machine |
-| **Phase 5** | Live Flash Dump to Disk | **IN PROGRESS** | Hardware wire connected (`093a:c600`), calibrating EP04 transfer |
+| **Phase 5** | Live Flash Dump to Disk | **100% COMPLETE** | Extracted & validated all 8 hardware EEPROM/ROM banks (512B) to disk |
 | **Phase 6** | Custom Microcode Flashing | **PLANNED** | End-to-end flashing of custom Holtek firmware payloads |
 
 ## Quick Start
@@ -234,6 +234,12 @@ lorgarctl dpi set 2 3200
 
 # Switch active DPI stage immediately
 lorgarctl dpi active 1
+
+# List all 8 stages live from hardware memory (Bank 0xa6 DPI + Bank 0xa3 LED color)
+lorgarctl dpi list
+
+# Configure multiple DPI stages simultaneously in hardware EEPROM
+lorgarctl dpi set-all 400 800 1200 1600 2400 3200 6400 12000
 ```
 
 ### Sleep Timeout (Inactivity Hibernation)
@@ -279,6 +285,21 @@ lorgarctl debounce 8
 
 # Enable rapid fire mode
 lorgarctl debounce 8 --rapid-fire
+```
+
+### Hardware Physical Button Mappings
+
+Inspect physical button action matrices stored in the mouse non-volatile EEPROM (Bank `0xa4` primary, Bank `0xa5` secondary):
+
+```bash
+# Inspect primary button mappings
+lorgarctl buttons
+
+# Inspect secondary / burst profile button mappings
+lorgarctl buttons --secondary
+
+# Structured JSON output
+lorgarctl buttons --json
 ```
 
 ### Firmware Tools & Custom Firmware Management

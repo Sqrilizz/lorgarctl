@@ -212,6 +212,13 @@ pub enum Commands {
         enabled: Option<bool>,
     },
 
+    /// Inspect hardware physical button mapping tables (Bank 0xa4 primary, 0xa5 secondary)
+    Buttons {
+        /// Inspect secondary button mapping profile (Bank 0xa5) instead of primary (0xa4)
+        #[arg(long)]
+        secondary: bool,
+    },
+
     /// Firmware analysis, verification, dumping, container creation, and bootloader entry
     Firmware {
         #[command(subcommand)]
@@ -365,6 +372,13 @@ pub enum DpiCommands {
         /// Preset name: fps (400/800/1600/3200) | balanced (800/1200/1600/2400) | high (1600/2400/3200/6400)
         name: String,
     },
+
+    /// Configure multiple DPI stages sequentially in hardware (e.g. lorgarctl dpi set-all 800 1600 2400 3200)
+    SetAll {
+        /// Up to 8 DPI values in decimal (100..26000)
+        #[arg(required = true, num_args = 1..=8)]
+        stages: Vec<u16>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -477,6 +491,7 @@ fn run_app(cli: Cli) -> Result<()> {
         | Commands::Debounce { .. }
         | Commands::AngleSnap { .. }
         | Commands::MotionSync { .. }
+        | Commands::Buttons { .. }
         | Commands::Firmware { .. }
         | Commands::Doctor
         | Commands::Monitor

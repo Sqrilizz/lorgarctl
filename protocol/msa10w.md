@@ -545,3 +545,29 @@ All 8 banks (512 bytes) are dumped into a unified binary or annotated JSON via:
 ```bash
 lorgarctl firmware dump [--output msa10w_factory_dump.bin]
 ```
+
+### 8.5 Hardware Stage Writing & Physical Button Remapping Protocol (Validated on Hardware)
+Disassembled from mouse.MSA10WR.dll and verified on live hardware:
+- **DPI Stage Modification (0x26)**:
+  Sending an 8-byte Feature command:
+  `[0x26, 0x00, stage, dpi_lo, dpi_hi, 0x00, 0x00, 0x00]`
+  immediately updates Bank 0xa6 in hardware non-volatile memory and sets the active resolution.
+- **DPI Stage Palette (0x27) & Bank 0xa3**:
+  `[0x27, 0x00, stage, R, G, B, 0x00, 0x00]` configures per-stage indicator colors.
+- **Physical Button Mapping (Banks 0xa4 & 0xa5)**:
+  Non-volatile button matrix consists of 6 buttons (4 bytes per button, 24 bytes total):
+  - Button 1: Left Click (`f0 00 00 02`)
+  - Button 2: Right Click (`f1 00 00 02`)
+  - Button 3: Middle Click (`f2 00 00 02`)
+  - Button 4: Side Back (`f4 00 00 02`)
+  - Button 5: Side Forward (`f3 00 00 02`)
+  - Button 6: Top DPI Button (`03 00 00 0b`)
+  In the secondary profile (Bank 0xa5), Button 1 is configured for rapid-fire / burst click (`05 ff 00 02`).
+  Inspected live with:
+  ```bash
+  lorgarctl buttons [--secondary] [--json]
+  ```
+- **Sequential Multi-Stage Writing**:
+  ```bash
+  lorgarctl dpi set-all <d0> <d1> ... <d7>
+  ```

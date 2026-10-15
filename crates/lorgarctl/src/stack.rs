@@ -119,29 +119,108 @@ fn get_active_stage(cli: &Cli) -> Option<u8> {
     }
 }
 
-fn show_dpi_list(cli: &Cli) -> Result<()> {
-    let active_stage = get_active_stage(cli);
-    let stages = [
-        (0u8, 800u16, "#32cd32", "Lime"),
-        (1, 1200, "#9900ff", "Purple"),
-        (2, 1600, "#1e90ff", "Blue"),
-        (3, 2400, "#ff7f27", "Orange"),
-        (4, 3200, "#dc143c", "Crimson"),
-        (5, 6400, "#fff300", "Yellow"),
-        (6, 12000, "#fb569d", "Pink"),
-        (7, 16000, "#4c1130", "Dark Magenta"),
+fn color_name(r: u8, g: u8, b: u8) -> String {
+    match (r, g, b) {
+        (255, 0, 0) => "Red".to_string(),
+        (255, 127..=128, 0) => "Orange".to_string(),
+        (255, 255, 0) => "Yellow".to_string(),
+        (0, 255, 0) => "Green".to_string(),
+        (0, 0, 255) => "Blue".to_string(),
+        (0, 255, 255) => "Cyan".to_string(),
+        (139, 0, 255) => "Violet".to_string(),
+        (255, 255, 255) => "White".to_string(),
+        (50, 205, 50) => "Lime".to_string(),
+        (153, 0, 255) => "Purple".to_string(),
+        (30, 144, 255) => "Dodger Blue".to_string(),
+        (220, 20, 60) => "Crimson".to_string(),
+        (251, 86, 157) => "Pink".to_string(),
+        (76, 17, 48) => "Dark Magenta".to_string(),
+        _ => format!("RGB({r},{g},{b})"),
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DpiStageDisplay {
+    stage: u8,
+    dpi: u16,
+    hex: String,
+    color_name: String,
+}
+
+fn get_hardware_or_default_dpi_info(cli: &Cli) -> (Option<u8>, Vec<DpiStageDisplay>) {
+    let default_stages = [
+        (0u8, 800u16, "#ff0000", "Red"),
+        (1, 1600, "#ff7f00", "Orange"),
+        (2, 2400, "#ffff00", "Yellow"),
+        (3, 3200, "#00ff00", "Green"),
+        (4, 6400, "#0000ff", "Blue"),
+        (5, 12000, "#00ffff", "Cyan"),
+        (6, 8200, "#8b00ff", "Violet"),
+        (7, 6400, "#ffffff", "White"),
     ];
+
+    if !is_daemon_mode(cli) {
+        if let Ok(dev) = crate::open_device(cli.device.as_deref(), false) {
+            let active = dev
+                .query_device_state()
+                .ok()
+                .and_then(|raw| lorgar_core::protocol::parse_active_dpi_stage(&raw).ok());
+            let hw_dpis = dev.get_hardware_dpi_stages().ok();
+            let hw_colors = dev.get_hardware_stage_colors().ok();
+
+            if let Some(dpis) = hw_dpis {
+                let mut stages = Vec::with_capacity(8);
+                for i in 0..8 {
+                    let dpi = dpis[i];
+                    let (hex, name) = if let Some(colors) = &hw_colors {
+                        let [r, g, b] = colors[i];
+                        let hex = format!("#{r:02x}{g:02x}{b:02x}");
+                        let name = color_name(r, g, b);
+                        (hex, name)
+                    } else {
+                        (
+                            default_stages[i].2.to_string(),
+                            default_stages[i].3.to_string(),
+                        )
+                    };
+                    stages.push(DpiStageDisplay {
+                        stage: i as u8,
+                        dpi,
+                        hex,
+                        color_name: name,
+                    });
+                }
+                return (active, stages);
+            }
+        }
+    }
+
+    let active_stage = get_active_stage(cli);
+    let stages = default_stages
+        .iter()
+        .map(|&(stage, dpi, hex, name)| DpiStageDisplay {
+            stage,
+            dpi,
+            hex: hex.to_string(),
+            color_name: name.to_string(),
+        })
+        .collect();
+    (active_stage, stages)
+}
+
+fn show_dpi_list(cli: &Cli) -> Result<()> {
+    let (active_stage, stages) = get_hardware_or_default_dpi_info(cli);
 
     if cli.json {
         let items: Vec<_> = stages
             .iter()
-            .map(|(idx, dpi, hex, name)| {
+            .map(|s| {
                 json!({
-                    "stage": idx,
-                    "default_dpi": dpi,
-                    "color": hex,
-                    "color_name": name,
-                    "active": active_stage == Some(*idx),
+                    "stage": s.stage,
+                    "default_dpi": s.dpi,
+                    "color": s.hex,
+                    "color_name": s.color_name,
+                    "active": active_stage == Some(s.stage),
                 })
             })
             .collect();
@@ -163,14 +242,14 @@ fn show_dpi_list(cli: &Cli) -> Result<()> {
         "(PixArt PAW3395 100-26000 DPI)".dimmed()
     )?;
 
-    for (idx, dpi, hex, name) in &stages {
-        let is_active = active_stage == Some(*idx);
+    for s in &stages {
+        let is_active = active_stage == Some(s.stage);
         let marker = if is_active {
             " ◄ active".green().bold()
         } else {
             "".normal()
         };
-        let stage_str = format!("[{idx}]");
+        let stage_str = format!("[{}]", s.stage);
         writeln!(
             out,
             "  {} {:>5} DPI   {:<9} ({}){}",
@@ -179,9 +258,9 @@ fn show_dpi_list(cli: &Cli) -> Result<()> {
             } else {
                 stage_str.cyan()
             },
-            dpi.to_string().yellow().bold(),
-            hex.dimmed(),
-            name,
+            s.dpi.to_string().yellow().bold(),
+            s.hex.dimmed(),
+            s.color_name,
             marker
         )?;
     }
@@ -198,11 +277,131 @@ fn show_dpi_list(cli: &Cli) -> Result<()> {
     )?;
     writeln!(
         out,
+        "  lorgarctl dpi set-all <d0> <d1>.. Set multiple stages in hardware"
+    )?;
+    writeln!(
+        out,
         "  lorgarctl dpi color <stage> <hex> Set indicator LED color"
     )?;
     writeln!(
         out,
         "  lorgarctl dpi preset fps          Apply FPS gaming preset (400/800/1600/3200)"
+    )?;
+    Ok(())
+}
+
+fn set_all_dpi_stages(cli: &Cli, stages: &[u16]) -> Result<()> {
+    if stages.is_empty() || stages.len() > 8 {
+        return Err(LorgarError::Config(
+            "Specify between 1 and 8 DPI values".into(),
+        ));
+    }
+    for &dpi in stages {
+        if !(lorgar_core::MIN_DPI..=lorgar_core::MAX_DPI).contains(&dpi) {
+            return Err(LorgarError::InvalidDpi {
+                dpi,
+                min: lorgar_core::MIN_DPI,
+                max: lorgar_core::MAX_DPI,
+            });
+        }
+    }
+    let dev = crate::open_device(cli.device.as_deref(), false)?;
+    for (stage, &dpi) in stages.iter().enumerate() {
+        dev.set_dpi(stage as u8, dpi)?;
+    }
+
+    if cli.json {
+        return output(
+            &json!({
+                "ok": true,
+                "stages_updated": stages.len(),
+                "values": stages,
+            }),
+            cli.json,
+        );
+    }
+
+    let mut out = std::io::stdout().lock();
+    writeln!(
+        out,
+        "{} {}",
+        "Updated hardware DPI stages:".green().bold(),
+        stages
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )?;
+    Ok(())
+}
+
+fn show_button_mappings(cli: &Cli, secondary: bool) -> Result<()> {
+    let mode_name = if secondary {
+        "Secondary Profile"
+    } else {
+        "Primary Profile"
+    };
+    let bank_id = if secondary { "0xa5" } else { "0xa4" };
+
+    let dev = crate::open_device(cli.device.as_deref(), false)?;
+    let buttons = dev.get_hardware_button_mappings(secondary)?;
+
+    if cli.json {
+        return output(
+            &json!({
+                "ok": true,
+                "secondary": secondary,
+                "bank": bank_id,
+                "profile": mode_name,
+                "buttons": buttons
+                    .iter()
+                    .map(|b| {
+                        json!({
+                            "button": b.button_index + 1,
+                            "name": b.name,
+                            "raw_hex": format!(
+                                "{:02x}{:02x}{:02x}{:02x}",
+                                b.raw[0], b.raw[1], b.raw[2], b.raw[3]
+                            ),
+                            "action": b.action.display_name(),
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            }),
+            cli.json,
+        );
+    }
+
+    let mut out = std::io::stdout().lock();
+    writeln!(
+        out,
+        "{} {} {}",
+        "LORGAR MSA10W Button Mappings".bold().white(),
+        format!("({mode_name} / Bank {bank_id})").cyan(),
+        "[Hardware EEPROM]".green().bold()
+    )?;
+
+    for b in &buttons {
+        let btn_str = format!("[#{}]", b.button_index + 1);
+        let hex_str = format!(
+            "{:02x} {:02x} {:02x} {:02x}",
+            b.raw[0], b.raw[1], b.raw[2], b.raw[3]
+        );
+        writeln!(
+            out,
+            "  {} {:<28} {:<14} {}",
+            btn_str.cyan().bold(),
+            b.name.white(),
+            hex_str.dimmed(),
+            b.action.display_name().green().bold()
+        )?;
+    }
+
+    writeln!(out)?;
+    writeln!(
+        out,
+        "{}",
+        "Hardware physical button mapping stored in non-volatile mouse memory.".dimmed()
     )?;
     Ok(())
 }
@@ -960,6 +1159,9 @@ fn control(cli: &Cli) -> Result<()> {
             if let Some(DpiCommands::Preset { name }) = sub {
                 return apply_dpi_preset(cli, name);
             }
+            if let Some(DpiCommands::SetAll { stages }) = sub {
+                return set_all_dpi_stages(cli, stages);
+            }
             let command = match sub {
                 Some(DpiCommands::Set { stage, dpi }) => Command::SetDpi {
                     stage: *stage,
@@ -975,7 +1177,9 @@ fn control(cli: &Cli) -> Result<()> {
                         blue,
                     }
                 }
-                Some(DpiCommands::List) | Some(DpiCommands::Preset { .. }) => unreachable!(),
+                Some(DpiCommands::List)
+                | Some(DpiCommands::Preset { .. })
+                | Some(DpiCommands::SetAll { .. }) => unreachable!(),
                 None => {
                     match (stage, dpi) {
                         (Some(stage), Some(dpi)) => Command::SetDpi {
@@ -1106,6 +1310,7 @@ fn control(cli: &Cli) -> Result<()> {
             }
             Ok(())
         }
+        Commands::Buttons { secondary } => show_button_mappings(cli, *secondary),
         Commands::Firmware { sub } => handle_firmware(cli, sub),
         _ => Err(LorgarError::Config(
             "--daemon/--json is not supported for this legacy integration or raw debug command"

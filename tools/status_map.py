@@ -167,7 +167,7 @@ def main():
         {"name": "FW Container & Format", "label": "FW Container", "done": 32, "todo": 0},
         {"name": "Bootloader Entry (0x08 0x0d)", "label": "Boot Mode (0x0d)", "done": 24, "todo": 8},
         {"name": "Live Memory Dump (0x82..0xf0)", "label": "Flash Dump", "done": 32, "todo": 0},
-        {"name": "Custom Flash Write (0xC0/C1)", "label": "Flash Write (0xC0)", "done": 8, "todo": 24},
+        {"name": "Custom Flash Write (0xC0/C1)", "label": "Flash Write (0xC0)", "done": 16, "todo": 16},
     ]
 
     # Right panel: Hardware protocol commands, OEM architecture & Linux driver stack

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 310" width="1000" height="310">
 <rect x="0.00" y="0.00" width="1000.00" height="310.00" fill="#0d1117" stroke="#0d1117" stroke-width="0"/>
-<text x="4.00" y="21.00" font-family="DejaVu Sans, Noto Sans, sans-serif" font-size="16" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">Firmware &amp; Bootloader*: 92.3% (384/416)</text>
+<text x="4.00" y="21.00" font-family="DejaVu Sans, Noto Sans, sans-serif" font-size="16" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">Firmware &amp; Bootloader*: 94.2% (392/416)</text>
 <g><title>Pkt 0x01: DPI &amp; LED: 32/32 (100%)</title>
 <rect x="1.00" y="31.00" width="16.03" height="18.27" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
 <rect x="17.03" y="31.00" width="16.03" height="18.27" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
@@ -433,7 +433,7 @@
 <rect x="361.73" y="150.00" width="133.27" height="80.00" fill="none" stroke="#0d1117" stroke-width="2"/>
 <text x="366.73" y="166.00" font-family="DejaVu Sans, Noto Sans, sans-serif" font-size="12" fill="#ffffff" stroke="#0d1117" stroke-width="3" paint-order="stroke">Flash Dump</text>
 </g>
-<g><title>Custom Flash Write (0xC0/C1): 8/32 (25%)</title>
+<g><title>Custom Flash Write (0xC0/C1): 16/32 (50%)</title>
 <rect x="362.73" y="231.00" width="16.41" height="19.50" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
 <rect x="379.14" y="231.00" width="16.41" height="19.50" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
 <rect x="395.55" y="231.00" width="16.41" height="19.50" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
@@ -442,14 +442,14 @@
 <rect x="444.77" y="231.00" width="16.41" height="19.50" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
 <rect x="461.18" y="231.00" width="16.41" height="19.50" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
 <rect x="477.59" y="231.00" width="16.41" height="19.50" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
-<rect x="362.73" y="250.50" width="16.41" height="19.50" fill="#6e7681" stroke="#0d1117" stroke-width="0.5"/>
-<rect x="379.14" y="250.50" width="16.41" height="19.50" fill="#6e7681" stroke="#0d1117" stroke-width="0.5"/>
-<rect x="395.55" y="250.50" width="16.41" height="19.50" fill="#6e7681" stroke="#0d1117" stroke-width="0.5"/>
-<rect x="411.96" y="250.50" width="16.41" height="19.50" fill="#6e7681" stroke="#0d1117" stroke-width="0.5"/>
-<rect x="428.37" y="250.50" width="16.41" height="19.50" fill="#6e7681" stroke="#0d1117" stroke-width="0.5"/>
-<rect x="444.77" y="250.50" width="16.41" height="19.50" fill="#6e7681" stroke="#0d1117" stroke-width="0.5"/>
-<rect x="461.18" y="250.50" width="16.41" height="19.50" fill="#6e7681" stroke="#0d1117" stroke-width="0.5"/>
-<rect x="477.59" y="250.50" width="16.41" height="19.50" fill="#6e7681" stroke="#0d1117" stroke-width="0.5"/>
+<rect x="362.73" y="250.50" width="16.41" height="19.50" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
+<rect x="379.14" y="250.50" width="16.41" height="19.50" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
+<rect x="395.55" y="250.50" width="16.41" height="19.50" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
+<rect x="411.96" y="250.50" width="16.41" height="19.50" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
+<rect x="428.37" y="250.50" width="16.41" height="19.50" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
+<rect x="444.77" y="250.50" width="16.41" height="19.50" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
+<rect x="461.18" y="250.50" width="16.41" height="19.50" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
+<rect x="477.59" y="250.50" width="16.41" height="19.50" fill="#2ea043" stroke="#0d1117" stroke-width="0.5"/>
 <rect x="362.73" y="270.00" width="16.41" height="19.50" fill="#6e7681" stroke="#0d1117" stroke-width="0.5"/>
 <rect x="379.14" y="270.00" width="16.41" height="19.50" fill="#6e7681" stroke="#0d1117" stroke-width="0.5"/>
 <rect x="395.55" y="270.00" width="16.41" height="19.50" fill="#6e7681" stroke="#0d1117" stroke-width="0.5"/>

@@ -311,6 +311,70 @@ impl Msa10w {
         Ok(crate::firmware::OnboardMemoryDump { banks, total_bytes })
     }
 
+    pub fn get_hardware_dpi_stages(&self) -> Result<[u16; 8]> {
+        let mut payload = [0u8; 8];
+        payload[0] = 0xa6;
+        let resp = self.query_feature(&payload, 1000)?;
+        if resp.len() < 16 {
+            return Err(LorgarError::Transport(
+                "DPI table query returned fewer than 16 bytes".into(),
+            ));
+        }
+        let mut stages = [0u16; 8];
+        for (i, chunk) in resp[..16].chunks_exact(2).enumerate() {
+            stages[i] = u16::from_le_bytes([chunk[0], chunk[1]]);
+        }
+        Ok(stages)
+    }
+
+    pub fn get_hardware_stage_colors(&self) -> Result<[[u8; 3]; 8]> {
+        let mut payload = [0u8; 8];
+        payload[0] = 0xa3;
+        let resp = self.query_feature(&payload, 1000)?;
+        if resp.len() < 24 {
+            return Err(LorgarError::Transport(
+                "DPI stage RGB palette query returned fewer than 24 bytes".into(),
+            ));
+        }
+        let mut colors = [[0u8; 3]; 8];
+        for (i, chunk) in resp[..24].chunks_exact(3).enumerate() {
+            colors[i] = [chunk[0], chunk[1], chunk[2]];
+        }
+        Ok(colors)
+    }
+
+    pub fn get_hardware_button_mappings(
+        &self,
+        secondary: bool,
+    ) -> Result<Vec<crate::firmware::ButtonMapping>> {
+        let opcode = if secondary { 0xa5 } else { 0xa4 };
+        let mut payload = [0u8; 8];
+        payload[0] = opcode;
+        let resp = self.query_feature(&payload, 1000)?;
+        let dump = crate::firmware::OnboardMemoryDump {
+            banks: vec![crate::firmware::MemoryBank {
+                opcode,
+                name: if secondary {
+                    "button_mapping_secondary".into()
+                } else {
+                    "button_mapping_primary".into()
+                },
+                data: resp,
+            }],
+            total_bytes: 64,
+        };
+        dump.parse_button_mappings(secondary).ok_or_else(|| {
+            LorgarError::Transport("Failed to parse hardware button mappings".into())
+        })
+    }
+
+    pub fn set_dpi_stages(&self, stages: &[u16; 8]) -> Result<()> {
+        for (stage, &dpi) in stages.iter().enumerate() {
+            self.set_dpi(stage as u8, dpi)?;
+        }
+        Ok(())
+    }
+
     pub fn set_stage_color(&self, stage: u8, r: u8, g: u8, b: u8) -> Result<[u8; 8]> {
         let payload = build_set_stage_color_payload(stage, r, g, b)?;
         self.transport.send_feature_command(&payload)?;

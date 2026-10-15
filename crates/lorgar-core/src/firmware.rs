@@ -16,6 +16,51 @@ pub const ONBOARD_MEMORY_BANKS: [(u8, &str); 8] = [
     (0xf0, "paw3395_calibration_otp"),
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ButtonMapping {
+    pub button_index: u8,
+    pub name: &'static str,
+    pub raw: [u8; 4],
+    pub action: ButtonAction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ButtonAction {
+    LeftClick,
+    RightClick,
+    MiddleClick,
+    Backward,
+    Forward,
+    DpiLoop,
+    Unknown(u32),
+}
+
+impl ButtonAction {
+    pub fn from_raw(raw: [u8; 4]) -> Self {
+        match raw {
+            [0xf0, 0x00, 0x00, 0x02] => ButtonAction::LeftClick,
+            [0xf1, 0x00, 0x00, 0x02] => ButtonAction::RightClick,
+            [0xf2, 0x00, 0x00, 0x02] => ButtonAction::MiddleClick,
+            [0xf4, 0x00, 0x00, 0x02] => ButtonAction::Backward,
+            [0xf3, 0x00, 0x00, 0x02] => ButtonAction::Forward,
+            [0x03, 0x00, 0x00, 0x0b] => ButtonAction::DpiLoop,
+            _ => ButtonAction::Unknown(u32::from_le_bytes(raw)),
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ButtonAction::LeftClick => "Left Click",
+            ButtonAction::RightClick => "Right Click",
+            ButtonAction::MiddleClick => "Middle Click",
+            ButtonAction::Backward => "Browser Back",
+            ButtonAction::Forward => "Browser Forward",
+            ButtonAction::DpiLoop => "DPI Cycle / Loop",
+            ButtonAction::Unknown(_) => "Custom Action",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MemoryBank {
     pub opcode: u8,
@@ -60,6 +105,33 @@ impl OnboardMemoryDump {
             colors.push([chunk[0], chunk[1], chunk[2]]);
         }
         Some(colors)
+    }
+
+    pub fn parse_button_mappings(&self, secondary: bool) -> Option<Vec<ButtonMapping>> {
+        let opcode = if secondary { 0xa5 } else { 0xa4 };
+        let bank = self.banks.iter().find(|b| b.opcode == opcode)?;
+        if bank.data.len() < 24 {
+            return None;
+        }
+        const BUTTON_NAMES: [&str; 6] = [
+            "Button 1 (Left Click)",
+            "Button 2 (Right Click)",
+            "Button 3 (Middle / Scroll)",
+            "Button 4 (Side Back)",
+            "Button 5 (Side Forward)",
+            "Button 6 (Top DPI Button)",
+        ];
+        let mut list = Vec::with_capacity(6);
+        for (i, chunk) in bank.data[..24].chunks_exact(4).enumerate() {
+            let raw = [chunk[0], chunk[1], chunk[2], chunk[3]];
+            list.push(ButtonMapping {
+                button_index: i as u8,
+                name: BUTTON_NAMES.get(i).copied().unwrap_or("Unknown Button"),
+                raw,
+                action: ButtonAction::from_raw(raw),
+            });
+        }
+        Some(list)
     }
 }
 
@@ -382,8 +454,21 @@ mod tests {
         rgb_data[0..3].copy_from_slice(&[0xff, 0x00, 0x00]);
         rgb_data[3..6].copy_from_slice(&[0x00, 0xff, 0x00]);
 
+        let mut btn_data = vec![0u8; 64];
+        btn_data[0..4].copy_from_slice(&[0xf0, 0x00, 0x00, 0x02]);
+        btn_data[4..8].copy_from_slice(&[0xf1, 0x00, 0x00, 0x02]);
+        btn_data[8..12].copy_from_slice(&[0xf2, 0x00, 0x00, 0x02]);
+        btn_data[12..16].copy_from_slice(&[0xf4, 0x00, 0x00, 0x02]);
+        btn_data[16..20].copy_from_slice(&[0xf3, 0x00, 0x00, 0x02]);
+        btn_data[20..24].copy_from_slice(&[0x03, 0x00, 0x00, 0x0b]);
+
         let dump = OnboardMemoryDump {
             banks: vec![
+                MemoryBank {
+                    opcode: 0xa4,
+                    name: "button_mapping_primary".into(),
+                    data: btn_data,
+                },
                 MemoryBank {
                     opcode: 0xa6,
                     name: "dpi_stages_table".into(),
@@ -395,7 +480,7 @@ mod tests {
                     data: rgb_data,
                 },
             ],
-            total_bytes: 128,
+            total_bytes: 192,
         };
 
         let stages = dump.parse_dpi_stages().unwrap();
@@ -407,6 +492,16 @@ mod tests {
         let colors = dump.parse_rgb_palette().unwrap();
         assert_eq!(colors[0], [0xff, 0x00, 0x00]);
         assert_eq!(colors[1], [0x00, 0xff, 0x00]);
-        assert_eq!(dump.raw_bytes().len(), 128);
+
+        let buttons = dump.parse_button_mappings(false).unwrap();
+        assert_eq!(buttons.len(), 6);
+        assert_eq!(buttons[0].action, ButtonAction::LeftClick);
+        assert_eq!(buttons[1].action, ButtonAction::RightClick);
+        assert_eq!(buttons[2].action, ButtonAction::MiddleClick);
+        assert_eq!(buttons[3].action, ButtonAction::Backward);
+        assert_eq!(buttons[4].action, ButtonAction::Forward);
+        assert_eq!(buttons[5].action, ButtonAction::DpiLoop);
+
+        assert_eq!(dump.raw_bytes().len(), 192);
     }
 }
