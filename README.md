@@ -5,6 +5,8 @@
 [![License](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![Kernel License](https://img.shields.io/badge/Kernel-GPL--2.0-red.svg)](kernel/LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux-green.svg?logo=linux)](https://kernel.org)
+[![AUR package](https://img.shields.io/aur/version/lorgarctl-bin?logo=arch-linux)](https://aur.archlinux.org/packages/lorgarctl-bin)
+[![GitHub Release](https://img.shields.io/github/v/release/Sqrilizz/lorgarctl?logo=github)](https://github.com/Sqrilizz/lorgarctl/releases/latest)
 
 <table>
 <tr>
@@ -123,7 +125,25 @@ The mouse firmware strictly separates its protocol into two decoupled communicat
 | **Phase 5** | Live Flash Dump to Disk | **100% COMPLETE** | Extracted & validated all 8 hardware EEPROM/ROM banks (512B) to disk |
 | **Phase 6** | Custom Microcode Flashing | **PLANNED** | End-to-end flashing of custom Holtek firmware payloads |
 
-## Quick Start
+## Installation
+
+### Arch Linux / CachyOS / Manjaro (AUR)
+
+Install the prebuilt binary package with your AUR helper (recommended):
+
+```bash
+# Using yay
+yay -S lorgarctl-bin
+
+# Or using paru
+paru -S lorgarctl-bin
+```
+
+This automatically installs `lorgarctl`, `lorgard`, udev rules, shell completions, the systemd user service, the KDE Plasma 6 widget, and DKMS module sources.
+
+---
+
+## Quick Start (Build from Source)
 
 ### 1. Install System Dependencies
 
