@@ -7,7 +7,7 @@ fails when these diverge.
 | :--- | :---: | :--- |
 | Rust workspace (`lorgar-core`, `lorgarctl`, `lorgard`) | 0.1.0 | `Cargo.toml` `[workspace.package] version` |
 | Kernel module (`hid-lorgar`) | 2.3.4 | `kernel/dkms.conf` `PACKAGE_VERSION` + `kernel/hid-lorgar.c` `MODULE_VERSION` |
-| Plasmoid widget | 1.0 | `plasmoid/metadata.json` |
+| Plasmoid widget | 1.0 | `plasmoid/org.lorgar.battery/metadata.json` |
 | Release tag | `v2.x.y` | git tag (kernel-lineage version, not Rust version) |
 
 Rules:
