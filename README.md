@@ -141,6 +141,16 @@ paru -S lorgarctl-bin
 
 This automatically installs `lorgarctl`, `lorgard`, udev rules, shell completions, the systemd user service, the KDE Plasma 6 widget, and DKMS module sources.
 
+### Ubuntu / Debian / Pop!_OS / Linux Mint (.deb)
+
+Download the `.deb` package from the [latest GitHub release](https://github.com/Sqrilizz/lorgarctl/releases/latest) and install it with `apt`:
+
+```bash
+sudo apt install ./lorgarctl_*_amd64.deb
+```
+
+This installs binaries into `/usr/bin`, registers udev rules (reloading them automatically), and installs DKMS module sources.
+
 ---
 
 ## Quick Start (Build from Source)
