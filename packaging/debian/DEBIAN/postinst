@@ -1,0 +1,25 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Reload udev rules to enable non-root mouse access immediately
+        if command -v udevadm >/dev/null 2>&1; then
+            udevadm control --reload-rules || true
+            udevadm trigger || true
+        fi
+
+        # Register and build DKMS module if dkms is installed
+        if command -v dkms >/dev/null 2>&1; then
+            DKMS_DIR=$(ls -d /usr/src/hid-lorgar-* 2>/dev/null | head -n 1)
+            if [ -n "$DKMS_DIR" ]; then
+                DKMS_VER=$(basename "$DKMS_DIR" | sed 's/^hid-lorgar-//')
+                dkms add -m hid-lorgar -v "$DKMS_VER" 2>/dev/null || true
+                dkms build -m hid-lorgar -v "$DKMS_VER" 2>/dev/null || true
+                dkms install -m hid-lorgar -v "$DKMS_VER" 2>/dev/null || true
+            fi
+        fi
+        ;;
+esac
+
+exit 0

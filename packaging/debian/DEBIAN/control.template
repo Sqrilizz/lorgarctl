@@ -1,0 +1,14 @@
+Package: lorgarctl
+Version: @@VERSION@@
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: Matvei <w3ar3boys@gmail.com>
+Depends: libc6, libudev1, libhidapi-hidraw0 | libhidapi-libusb0, libdbus-1-3, libglib2.0-0
+Recommends: dkms
+Description: CLI controller, user daemon and DKMS driver for LORGAR MSA10W
+ Complete open-source Linux control stack for the LORGAR MSA10W wireless
+ gaming mouse. Provides DPI switching, RGB controls, native battery
+ integration via UPower / power_supply, background profile daemon,
+ and optional hid-lorgar kernel driver.
+Homepage: https://github.com/Sqrilizz/lorgarctl

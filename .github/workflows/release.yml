@@ -61,10 +61,17 @@ jobs:
           tar -czf "$RELEASE_DIR.tar.gz" "$RELEASE_DIR"
           sha256sum "$RELEASE_DIR.tar.gz" > "$RELEASE_DIR.tar.gz.sha256"
 
+      - name: Build Debian (.deb) package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          bash packaging/debian/build-deb.sh "$VERSION"
+
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           files: |
             lorgar-*.tar.gz
             lorgar-*.tar.gz.sha256
+            target/debian/*.deb
+            target/debian/*.deb.sha256
           generate_release_notes: true
