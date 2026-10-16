@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=LORGAR Terminal
+GenericName=Gaming Mouse Controller
+Comment=Terminal controller & telemetry daemon for LORGAR MSA10W
+Exec=lorgarctl menu
+Icon=lorgarctl
+Terminal=true
+Type=Application
+Categories=Settings;HardwareSettings;Utility;
+Keywords=mouse;dpi;rgb;battery;gaming;lorgar;
+StartupNotify=true
