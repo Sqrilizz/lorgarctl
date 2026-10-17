@@ -36,6 +36,7 @@ check:
 	./protocol-test
 	modinfo ./hid-lorgar.ko >/dev/null
 	test "$$(modinfo -F version ./hid-lorgar.ko)" = "$(MODULE_VERSION)"
+	$(MAKE) clean
 
 protocol-test: tests/protocol_test.c hid-lorgar-protocol.h
 	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -pedantic tests/protocol_test.c -o $@

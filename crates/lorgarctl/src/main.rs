@@ -53,12 +53,21 @@ struct Cli {
         help = "Override the XDG profile configuration path"
     )]
     config: Option<std::path::PathBuf>,
-    /// Enable detailed debug output and packet inspection
-    #[arg(global = true, short = 'd', long)]
+
+    #[arg(
+        global = true,
+        short = 'd',
+        long,
+        help = "Enable debug output and packet inspection"
+    )]
     debug: bool,
 
-    /// Override automatic discovery with specific hidraw path (e.g. /dev/hidraw2)
-    #[arg(global = true, short = 'p', long)]
+    #[arg(
+        global = true,
+        short = 'p',
+        long,
+        help = "Override automatic discovery with specific hidraw path"
+    )]
     device: Option<String>,
 
     #[command(subcommand)]
@@ -105,127 +114,126 @@ pub enum Commands {
     },
     #[command(about = "Generate shell completions to stdout")]
     Completions { shell: clap_complete::Shell },
-    /// Interactive terminal menu for quick mouse configuration
-    #[command(alias = "tui", alias = "interactive")]
+
+    #[command(
+        alias = "tui",
+        alias = "interactive",
+        about = "Interactive terminal control menu"
+    )]
     Menu,
 
-    /// Show mouse dashboard summary (battery, device info, connection)
-    #[command(alias = "info", alias = "hub")]
+    #[command(
+        alias = "info",
+        alias = "hub",
+        about = "Show mouse status and telemetry"
+    )]
     Status,
 
-    /// Run native System Tray icon daemon for KDE Plasma / GNOME / XFCE
-    #[command(alias = "daemon")]
+    #[command(alias = "daemon", about = "Run system tray icon daemon")]
     Tray,
 
-    /// Run UPower system battery daemon (integrates mouse battery into KDE Plasma 'Battery & Power' menu)
-    #[command(alias = "upower-daemon")]
+    #[command(alias = "upower-daemon", about = "Run UPower system battery daemon")]
     Upower,
 
-    /// Enumerate and display diagnostic info for connected LORGAR devices
+    #[command(about = "List connected LORGAR devices")]
     Devices,
 
-    /// Display battery status
+    #[command(about = "Display battery status")]
     Battery {
-        /// Print short string for KDE panel / status bars (e.g. "83%" or "🖱️ 83%")
-        #[arg(short, long)]
+        #[arg(short, long, help = "Print short status string")]
         short: bool,
 
-        /// Send desktop notification if battery level is below threshold
-        #[arg(short, long)]
+        #[arg(short, long, help = "Send desktop notification if below threshold")]
         notify: bool,
 
-        /// Low battery notification threshold percentage (default: 20)
-        #[arg(short, long, default_value_t = 20)]
+        #[arg(
+            short,
+            long,
+            default_value_t = 20,
+            help = "Low battery threshold percentage"
+        )]
         threshold: u8,
 
-        /// Send a test notification to verify desktop popups
-        #[arg(long)]
+        #[arg(long, help = "Send test desktop notification")]
         test_notify: bool,
     },
 
-    /// Manage DPI settings and active stage (e.g. lorgarctl dpi 1 or lorgarctl dpi 1 1400)
+    #[command(about = "Configure DPI settings and stages")]
     Dpi {
         #[command(subcommand)]
         sub: Option<DpiCommands>,
 
-        /// DPI stage index to activate or configure (0..7)
+        #[arg(help = "DPI stage index (0..7)")]
         stage: Option<u8>,
 
-        /// DPI value in decimal (e.g. 800, 1400, 1600, 3000)
+        #[arg(help = "DPI value (100..26000)")]
         dpi: Option<u16>,
     },
 
-    /// Manage USB polling rate (e.g. lorgarctl polling 1000 or lorgarctl polling set 1000)
+    #[command(about = "Configure USB polling rate")]
     Polling {
         #[command(subcommand)]
         sub: Option<PollingSubcommands>,
 
-        /// Frequency in Hz: 125 | 250 | 500 | 1000
-        #[arg(value_parser = parse_polling_rate)]
+        #[arg(value_parser = parse_polling_rate, help = "Polling rate in Hz (125, 250, 500, 1000)")]
         hz: Option<PollingRate>,
     },
 
-    /// Manage RGB lighting settings and modes (e.g. lorgarctl rgb wave or lorgarctl rgb ff0000)
+    #[command(about = "Configure RGB lighting settings and modes")]
     Rgb {
         #[command(subcommand)]
         sub: Option<RgbCommands>,
 
-        /// Direct mode name (static, breathing, color-cycle, tapping, wave) or hex color (#RRGGBB)
+        #[arg(help = "Lighting mode or hex color (#RRGGBB)")]
         target: Option<String>,
     },
 
-    /// Manage mouse sleep / hibernation timeout (1..10 minutes)
+    #[command(about = "Configure sleep and hibernation timeout")]
     Sleep {
-        /// Timeout in minutes (1..10, default: 5)
+        #[arg(help = "Timeout in minutes (1..10)")]
         minutes: Option<u8>,
     },
 
-    /// Manage sensor Lift-Off Distance (1 mm or 2 mm)
+    #[command(about = "Configure sensor Lift-Off Distance")]
     Lod {
-        /// LOD in millimeters: 1 | 2
-        #[arg(value_parser = clap::value_parser!(u8).range(1..=2))]
+        #[arg(value_parser = clap::value_parser!(u8).range(1..=2), help = "LOD in mm (1 or 2)")]
         mm: Option<u8>,
     },
 
-    /// Manage button debounce delay in milliseconds (1..20 ms)
+    #[command(about = "Configure button debounce delay")]
     Debounce {
-        /// Debounce delay in milliseconds (1..20)
-        #[arg(value_parser = clap::value_parser!(u16).range(1..=20))]
+        #[arg(value_parser = clap::value_parser!(u16).range(1..=20), help = "Debounce delay in ms (1..20)")]
         ms: Option<u16>,
 
-        /// Enable or disable rapid fire mode
-        #[arg(long)]
+        #[arg(long, help = "Enable rapid fire mode")]
         rapid_fire: bool,
     },
 
-    /// Manage sensor angle snapping / prediction (on | off)
+    #[command(about = "Configure sensor angle snapping")]
     AngleSnap {
-        /// Enable or disable angle snapping: on / true / 1 / off / false / 0
-        #[arg(value_parser = parse_bool)]
+        #[arg(value_parser = parse_bool, help = "Enable or disable (on/off)")]
         enabled: Option<bool>,
     },
 
-    /// Manage sensor motion sync (on | off)
+    #[command(about = "Configure sensor motion sync")]
     MotionSync {
-        /// Enable or disable motion sync: on / true / 1 / off / false / 0
-        #[arg(value_parser = parse_bool)]
+        #[arg(value_parser = parse_bool, help = "Enable or disable (on/off)")]
         enabled: Option<bool>,
     },
 
-    /// Inspect hardware physical button mapping tables (Bank 0xa4 primary, 0xa5 secondary)
+    #[command(about = "Inspect hardware physical button mapping tables")]
     Buttons {
-        /// Inspect secondary button mapping profile (Bank 0xa5) instead of primary (0xa4)
-        #[arg(long)]
+        #[arg(long, help = "Inspect secondary button mapping profile")]
         secondary: bool,
     },
 
-    /// Firmware analysis, verification, dumping, container creation, and bootloader entry
+    #[command(about = "Firmware utilities")]
     Firmware {
         #[command(subcommand)]
         sub: FirmwareCommands,
     },
 
-    /// Developer and reverse-engineering utilities
+    #[command(about = "Developer and reverse-engineering utilities")]
     Debug {
         #[command(subcommand)]
         sub: DebugCommands,
@@ -234,43 +242,34 @@ pub enum Commands {
 
 #[derive(Subcommand, Debug)]
 pub enum FirmwareCommands {
-    /// Inspect and verify firmware binary container, headers, and checksums
+    #[command(about = "Inspect and verify firmware binary container, headers, and checksums")]
     Info {
-        /// Path to firmware binary file
+        #[arg(help = "Path to firmware binary file")]
         path: std::path::PathBuf,
     },
-    /// Create a signed/checksummed firmware container from raw code payload
+    #[command(about = "Create a signed firmware container from raw code payload")]
     Create {
-        /// Target product name (default: "LORGAR MSA10W")
         #[arg(long, default_value = "LORGAR MSA10W")]
         product: String,
-        /// Target MCU IC model (default: "571R")
         #[arg(long, default_value = "571R")]
         ic: String,
-        /// Target optical sensor (default: "PAW3395")
         #[arg(long, default_value = "PAW3395")]
         sensor: String,
-        /// Flash base destination address in hex or decimal (default: 0)
         #[arg(long, default_value_t = 0)]
         flash_base: u32,
-        /// Input raw binary firmware code payload
         #[arg(long)]
         input: std::path::PathBuf,
-        /// Output container file
         #[arg(long)]
         output: std::path::PathBuf,
     },
-    /// Switch mouse MCU into USB Bootloader / Update mode
+    #[command(about = "Switch mouse MCU into USB Bootloader / Update mode")]
     Bootloader,
-    /// Read back raw flash memory chunks from device
+    #[command(about = "Read back raw flash memory chunks from device")]
     Dump {
-        /// Flash memory starting address (default: 0)
         #[arg(long, default_value_t = 0)]
         addr: u16,
-        /// Total number of bytes to dump (default: 256)
         #[arg(long, default_value_t = 256)]
         len: usize,
-        /// Optional output file path to write dumped bytes
         #[arg(long)]
         output: Option<std::path::PathBuf>,
     },
@@ -286,9 +285,8 @@ pub fn parse_bool(s: &str) -> std::result::Result<bool, String> {
 
 #[derive(Subcommand, Debug)]
 pub enum PollingSubcommands {
-    /// Set USB polling rate in Hz (125, 250, 500, 1000)
+    #[command(about = "Set USB polling rate in Hz (125, 250, 500, 1000)")]
     Set {
-        /// Frequency in Hz: 125 | 250 | 500 | 1000
         #[arg(value_parser = parse_polling_rate)]
         hz: PollingRate,
     },
@@ -311,18 +309,14 @@ fn parse_polling_rate(s: &str) -> std::result::Result<PollingRate, String> {
 
 #[derive(Subcommand, Debug)]
 pub enum RgbCommands {
-    /// Set RGB lighting mode (static, breathing, color-cycle, tapping, wave)
+    #[command(about = "Set RGB lighting mode")]
     Mode {
-        /// Lighting mode name: static | breathing | color-cycle | tapping | wave
         #[arg(value_parser = parse_lighting_mode)]
         mode: LightingMode,
     },
 
-    /// Set static RGB lighting color (format: RRGGBB or #RRGGBB, e.g. ff0000, #a28466)
-    Color {
-        /// Hex color string
-        hex: String,
-    },
+    #[command(about = "Set static RGB lighting color (format: RRGGBB or #RRGGBB)")]
+    Color { hex: String },
 }
 
 pub fn parse_lighting_mode(s: &str) -> std::result::Result<LightingMode, String> {
@@ -342,40 +336,23 @@ pub fn parse_lighting_mode(s: &str) -> std::result::Result<LightingMode, String>
 
 #[derive(Subcommand, Debug)]
 pub enum DpiCommands {
-    /// Show all DPI stages and active stage
+    #[command(about = "Show all DPI stages and active stage")]
     List,
 
-    /// Set DPI value for a specific stage (stage: 0..7, dpi: 100..12000)
-    Set {
-        /// DPI stage index (0..7)
-        stage: u8,
-        /// DPI value in decimal (e.g. 800, 1400, 1600, 3000)
-        dpi: u16,
-    },
+    #[command(about = "Set DPI value for a specific stage (stage: 0..7, dpi: 100..12000)")]
+    Set { stage: u8, dpi: u16 },
 
-    /// Switch active DPI stage index (stage: 0..7)
-    Active {
-        /// DPI stage index to activate (0..7)
-        stage: u8,
-    },
+    #[command(about = "Switch active DPI stage index (stage: 0..7)")]
+    Active { stage: u8 },
 
-    /// Set top DPI indicator LED color for a stage (stage: 0..7, hex: #RRGGBB or RRGGBB)
-    Color {
-        /// DPI stage index (0..7)
-        stage: u8,
-        /// Hex color string (e.g. #ff0000, 32cd32)
-        hex: String,
-    },
+    #[command(about = "Set top DPI indicator LED color for a stage")]
+    Color { stage: u8, hex: String },
 
-    /// Apply standard DPI preset (fps, balanced, high)
-    Preset {
-        /// Preset name: fps (400/800/1600/3200) | balanced (800/1200/1600/2400) | high (1600/2400/3200/6400)
-        name: String,
-    },
+    #[command(about = "Apply standard DPI preset (fps, balanced, high)")]
+    Preset { name: String },
 
-    /// Configure multiple DPI stages sequentially in hardware (e.g. lorgarctl dpi set-all 800 1600 2400 3200)
+    #[command(about = "Configure multiple DPI stages sequentially in hardware")]
     SetAll {
-        /// Up to 8 DPI values in decimal (100..26000)
         #[arg(required = true, num_args = 1..=8)]
         stages: Vec<u16>,
     },
@@ -383,17 +360,11 @@ pub enum DpiCommands {
 
 #[derive(Subcommand, Debug)]
 pub enum DebugCommands {
-    /// Send raw 8-byte feature report to configuration interface (DANGER: for development)
-    SendFeature {
-        /// 8 hex bytes (e.g. "26 00 01 78 05 00 00 00" or single string "2600017805000000")
-        bytes: Vec<String>,
-    },
+    #[command(about = "Send raw 8-byte feature report to configuration interface")]
+    SendFeature { bytes: Vec<String> },
 
-    /// Send 8-byte query feature report and read 64-byte response packet
-    Query {
-        /// 8 hex bytes (defaults to 82 00 00 00 00 00 00 00)
-        bytes: Vec<String>,
-    },
+    #[command(about = "Send 8-byte query feature report and read 64-byte response packet")]
+    Query { bytes: Vec<String> },
 }
 
 fn open_device(cli_device: Option<&str>, debug: bool) -> Result<Msa10w> {
@@ -518,7 +489,7 @@ fn run_app(cli: Cli) -> Result<()> {
             unsafe extern "C" {
                 fn lorgar_uhid_open() -> std::ffi::c_int;
                 fn lorgar_uhid_update_battery(
-                    fd: std::ffi::c_int,
+                    uhid_fd: std::ffi::c_int,
                     percentage: u8,
                 ) -> std::ffi::c_int;
             }

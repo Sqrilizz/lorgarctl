@@ -543,7 +543,7 @@ Extracted live from `093a:c600` via Interface 2 (`0xff10`) 8-byte Feature Query 
 
 All 8 banks (512 bytes) are dumped into a unified binary or annotated JSON via:
 ```bash
-lorgarctl firmware dump [--output msa10w_factory_dump.bin]
+lorgarctl firmware dump [--output dumps/msa10w_factory_dump.bin]
 ```
 
 ### 8.5 Hardware Stage Writing & Physical Button Remapping Protocol (Validated on Hardware)

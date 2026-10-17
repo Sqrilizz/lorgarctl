@@ -11,7 +11,7 @@
 <table>
 <tr>
 <td width="300" align="center">
-<img src="LORGAR_Advanced_MSA10W_Wireless_Gaming_MouseBlack__3-1524438479.webp" alt="LORGAR MSA10W Wireless Gaming Mouse" width="280">
+<img src="assets/msa10w.webp" alt="LORGAR MSA10W Wireless Gaming Mouse" width="280">
 </td>
 <td>
 
@@ -346,7 +346,7 @@ lorgarctl firmware create --product "LORGAR MSA10W" --ic "571R" --sensor "PAW339
 
 # Dump all 8 onboard hardware memory banks (UID, DPI table, RGB palette, button maps, PAW3395 calibration OTP)
 lorgarctl firmware dump
-lorgarctl firmware dump --output msa10w_factory_dump.bin
+lorgarctl firmware dump --output dumps/msa10w_factory_dump.bin
 lorgarctl firmware dump --output msa10w_factory_dump.json
 
 # Dump custom address range

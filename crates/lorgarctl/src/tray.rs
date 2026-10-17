@@ -1,9 +1,4 @@
-//! Legacy system-tray integration (`--features tray`, on by default).
-//!
-//! Kept for compatibility with existing `lorgarctl tray` users. The `ksni`
-//! backend pulls a duplicate legacy tree (clap v2 / bitflags v1); lean builds
-//! should use `cargo build -p lorgarctl --no-default-features`. While the tray
-//! runs it owns direct HID; do not run it together with `lorgard`.
+//! System tray integration for LORGAR MSA10W.
 
 use lorgar_core::Result;
 
