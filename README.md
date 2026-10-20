@@ -17,7 +17,7 @@
 
 Complete, native Linux driver and control ecosystem for the **LORGAR MSA10W** wireless gaming mouse. No proprietary Windows software required.
 
-- Pixart sensor, 100–26,000 DPI, 8 onboard stages
+- Pixart sensor, 100–26,000 DPI, 8 onboard stages 
 - Wired `093a:c600` and 2.4 GHz dongle `093a:c601`
 - Native battery via `power_supply` / UPower (`lorgarctl battery --json`)
 - `lorgarctl menu`, `lorgard` daemon, optional `hid-lorgar` DKMS module
